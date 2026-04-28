@@ -54,7 +54,7 @@ function visualizationNode(id: string): AppNode {
     id,
     type: "visualization",
     position: { x: 400, y: 0 },
-    data: { label: "Visualization" },
+    data: { label: "Visualization", previewRows: 5 },
   };
 }
 

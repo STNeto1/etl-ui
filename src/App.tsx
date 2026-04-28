@@ -1,4 +1,4 @@
-import { useState, useCallback, type DragEvent } from "react";
+import { useState, useEffect, useCallback, type DragEvent } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -30,6 +30,7 @@ import {
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
+import { loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "./persistence/workspaceStore";
 
 const nodeTypes = {
   csvSource: CsvSourceNode,
@@ -48,11 +49,37 @@ const initialNodes: AppNode[] = [
 ];
 
 const initialEdges: Edge[] = [];
+const AUTOSAVE_DEBOUNCE_MS = 300;
 
 function FlowWorkspace() {
   const [nodes, setNodes] = useState<AppNode[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  const [hydrated, setHydrated] = useState(false);
   const { screenToFlowPosition } = useReactFlow();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const snapshot = await loadWorkspaceSnapshot();
+      if (cancelled) return;
+      if (snapshot != null) {
+        setNodes(snapshot.nodes);
+        setEdges(snapshot.edges);
+      }
+      setHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const timer = window.setTimeout(() => {
+      void saveWorkspaceSnapshot(nodes, edges);
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [edges, hydrated, nodes]);
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {

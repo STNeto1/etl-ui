@@ -40,6 +40,7 @@ export type FilterNode = Node<FilterNodeData, "filter">;
 
 export type VisualizationNodeData = {
   label: string;
+  previewRows: number;
 };
 
 export type VisualizationNode = Node<VisualizationNodeData, "visualization">;
@@ -94,6 +95,7 @@ export const defaultFilterData = (): FilterNodeData => ({
 
 export const defaultVisualizationData = (): VisualizationNodeData => ({
   label: "Visualization",
+  previewRows: 5,
 });
 
 export const defaultMergeUnionData = (): MergeUnionNodeData => ({

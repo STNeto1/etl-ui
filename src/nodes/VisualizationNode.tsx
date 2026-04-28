@@ -1,13 +1,19 @@
-import { useCallback, useMemo, useState, type ChangeEvent } from "react";
+import { useCallback, useMemo, type ChangeEvent } from "react";
 import {
   Handle,
   Position,
   useEdges,
   useNodes,
+  useReactFlow,
   type NodeProps,
 } from "@xyflow/react";
 import { getTabularOutput } from "../graph/tabularOutput";
-import type { AppNode, CsvPayload, VisualizationNode as VisualizationNodeType } from "../types/flow";
+import type {
+  AppNode,
+  CsvPayload,
+  VisualizationNode as VisualizationNodeType,
+  VisualizationNodeData,
+} from "../types/flow";
 
 const DEFAULT_PREVIEW_ROWS = 5;
 
@@ -22,10 +28,22 @@ type VizResolution =
       rowsBeforeFilter: number | null;
     };
 
-export function VisualizationNode({ id }: NodeProps<VisualizationNodeType>) {
+export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>) {
+  const { setNodes } = useReactFlow();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
-  const [requestedRows, setRequestedRows] = useState(DEFAULT_PREVIEW_ROWS);
+  const requestedRows = data.previewRows ?? DEFAULT_PREVIEW_ROWS;
+
+  const patchData = useCallback(
+    (patch: Partial<VisualizationNodeData>) => {
+      setNodes((ns) =>
+        ns.map((n) =>
+          n.id === id && n.type === "visualization" ? { ...n, data: { ...n.data, ...patch } } : n,
+        ),
+      );
+    },
+    [id, setNodes],
+  );
 
   const resolution = useMemo((): VizResolution => {
     const incoming = edges.filter((e) => e.target === id);
@@ -75,20 +93,18 @@ export function VisualizationNode({ id }: NodeProps<VisualizationNodeType>) {
       const v = Number.parseInt(e.target.value, 10);
       if (Number.isNaN(v)) return;
       const cap = totalRows > 0 ? totalRows : 1;
-      setRequestedRows(Math.min(Math.max(1, v), cap));
+      patchData({ previewRows: Math.min(Math.max(1, v), cap) });
     },
-    [totalRows],
+    [patchData, totalRows],
   );
 
   const bumpRows = useCallback(
     (delta: number) => {
       if (totalRows === 0) return;
-      setRequestedRows((r) => {
-        const shown = Math.min(Math.max(1, r), totalRows);
-        return Math.min(totalRows, Math.max(1, shown + delta));
-      });
+      const shown = Math.min(Math.max(1, requestedRows), totalRows);
+      patchData({ previewRows: Math.min(totalRows, Math.max(1, shown + delta)) });
     },
-    [totalRows],
+    [patchData, requestedRows, totalRows],
   );
 
   const filterShrunk =
