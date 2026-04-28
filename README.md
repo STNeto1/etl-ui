@@ -8,20 +8,22 @@ Browser-based canvas for wiring CSV / HTTP sources through transforms (filter, j
 
 ## Scripts
 
-| Command | Description |
-| --- | --- |
-| `bun install` | Install dependencies |
-| `bun run dev` | Vite dev server with HMR |
-| `bun run build` | Typecheck and production build |
-| `bun run test` | Vitest suite |
-| `bun run lint` | Oxlint with autofix |
-| `bun run lint:check` | Oxlint without writes (CI) |
-| `bun run format` | Oxfmt |
-| `bun run preview` | Preview production build |
+| Command              | Description                    |
+| -------------------- | ------------------------------ |
+| `bun install`        | Install dependencies           |
+| `bun run dev`        | Vite dev server with HMR       |
+| `bun run build`      | Typecheck and production build |
+| `bun run test`       | Vitest suite                   |
+| `bun run lint`       | Oxlint with autofix            |
+| `bun run lint:check` | Oxlint without writes (CI)     |
+| `bun run format`     | Oxfmt                          |
+| `bun run preview`    | Preview production build       |
 
 ## Workspace files
 
 Use **Export** in the toolbar to download the current graph as JSON (same schema as persistence). **Import** replaces the active workspace graph after confirmation and saves to IndexedDB.
+
+**Templates** (toolbar): pick a showcase graph (starter filter chain, aggregates, compute column, transform pipeline, conditional merge, join wiring) and click **Load template** to replace the current canvas with that pre-wired example (same autosave behavior as before).
 
 ## Keyboard shortcuts
 

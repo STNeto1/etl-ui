@@ -14,7 +14,11 @@ import {
   BackgroundVariant,
   Controls,
 } from "@xyflow/react";
-import { buildWorkspaceExportFilename, downloadWorkspaceJson, parseWorkspaceJsonText } from "./persistence/workspaceFile";
+import {
+  buildWorkspaceExportFilename,
+  downloadWorkspaceJson,
+  parseWorkspaceJsonText,
+} from "./persistence/workspaceFile";
 import { isTextEditingTarget } from "./workspace/isTextEditingTarget";
 import { useGraphHistory } from "./workspace/useGraphHistory";
 import "@xyflow/react/dist/style.css";
@@ -79,8 +83,12 @@ import {
   type WorkspaceIndex,
 } from "./persistence/workspaceStore";
 import { getBlankWorkspaceGraph } from "./workspace/blankWorkspace";
-import { getDemoWorkspaceSnapshot } from "./workspace/demoFlow";
 import { resetGraph } from "./workspace/resetGraph";
+import {
+  getWorkspaceTemplateSnapshot,
+  type WorkspaceTemplateId,
+  WORKSPACE_TEMPLATE_LIST,
+} from "./workspace/workspaceTemplates";
 
 const nodeTypes = {
   csvSource: CsvSourceNode,
@@ -116,12 +124,19 @@ function FlowWorkspace() {
   const [workspaceIndex, setWorkspaceIndex] = useState<WorkspaceIndex | null>(null);
   const [resetSourceToo, setResetSourceToo] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<WorkspaceTemplateId>("starter");
   const { screenToFlowPosition, fitView, deleteElements, getNodes, getEdges } = useReactFlow<
     AppNode,
     Edge
   >();
 
-  const { undo, redo, clear: resetHistory, canUndo, canRedo } = useGraphHistory({
+  const {
+    undo,
+    redo,
+    clear: resetHistory,
+    canUndo,
+    canRedo,
+  } = useGraphHistory({
     hydrated,
     nodes,
     edges,
@@ -259,6 +274,16 @@ function FlowWorkspace() {
     const name = item?.name ?? "workspace";
     downloadWorkspaceJson(nodes, edges, buildWorkspaceExportFilename(name));
   }, [workspaceIndex, workspaceId, nodes, edges]);
+
+  const handleLoadWorkspaceTemplate = useCallback(() => {
+    const snap = getWorkspaceTemplateSnapshot(selectedTemplateId);
+    resetHistory({ nodes: snap.nodes, edges: snap.edges });
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    queueMicrotask(() => {
+      fitView({ duration: 200 });
+    });
+  }, [selectedTemplateId, resetHistory, fitView]);
 
   const handleImportWorkspaceFile = useCallback(
     (file: File) => {
@@ -612,15 +637,10 @@ function FlowWorkspace() {
             onNewWorkspace={() => void handleNewWorkspace()}
             onRenameWorkspace={handleRenameWorkspace}
             onDeleteWorkspace={() => void handleDeleteWorkspace()}
-            onLoadDemo={() => {
-              const snap = getDemoWorkspaceSnapshot();
-              resetHistory({ nodes: snap.nodes, edges: snap.edges });
-              setNodes(snap.nodes);
-              setEdges(snap.edges);
-              queueMicrotask(() => {
-                fitView({ duration: 200 });
-              });
-            }}
+            workspaceTemplates={WORKSPACE_TEMPLATE_LIST}
+            selectedTemplateId={selectedTemplateId}
+            onSelectedTemplateIdChange={setSelectedTemplateId}
+            onLoadWorkspaceTemplate={handleLoadWorkspaceTemplate}
             resetSourceToo={resetSourceToo}
             onResetSourceTooChange={setResetSourceToo}
             onResetGraph={() => void handleResetGraph()}

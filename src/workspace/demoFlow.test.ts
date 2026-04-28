@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CSV_SOURCE_NODE_ID } from "../types/flow";
 import { DEMO_TEMPLATE_CSV } from "./demoSeedCsv";
 import { getDemoWorkspaceSnapshot } from "./demoFlow";
+import { TEMPLATE_NODE_GAP_X } from "./workspaceTemplates";
 
 const MIN_NODE_X_GAP = 440;
 
@@ -31,10 +32,14 @@ describe("getDemoWorkspaceSnapshot", () => {
     const ids = new Set(nodes.map((n) => n.id));
     expect(edges).toHaveLength(2);
     const e1 = edges.find((e) => e.source === CSV_SOURCE_NODE_ID);
-    const e2 = edges.find((e) => e.target === "demo-viz");
-    expect(e1?.target).toBe("demo-filter");
-    expect(e2?.source).toBe("demo-filter");
-    expect(ids.has("demo-filter")).toBe(true);
-    expect(ids.has("demo-viz")).toBe(true);
+    const e2 = edges.find((e) => e.target === "tmpl-starter-viz");
+    expect(e1?.target).toBe("tmpl-starter-filter");
+    expect(e2?.source).toBe("tmpl-starter-filter");
+    expect(ids.has("tmpl-starter-filter")).toBe(true);
+    expect(ids.has("tmpl-starter-viz")).toBe(true);
+  });
+
+  it("uses template horizontal spacing constant", () => {
+    expect(TEMPLATE_NODE_GAP_X).toBeGreaterThanOrEqual(MIN_NODE_X_GAP);
   });
 });
