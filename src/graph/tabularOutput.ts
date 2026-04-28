@@ -1,7 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import { runAggregate } from "../aggregate/runAggregate";
 import { applyComputeRow } from "../computeColumn/template";
-import type { AppNode, CsvPayload } from "../types/flow";
+import type { AppNode, CsvPayload, HttpColumnRename } from "../types/flow";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
@@ -86,6 +86,27 @@ export function getTabularOutputForEdge(
   return resolveNodeOutput(incomingEdge.source, incomingEdge.sourceHandle ?? null, nodes, edges, visited);
 }
 
+function applyHttpColumnRenames(csv: CsvPayload, renames: HttpColumnRename[]): CsvPayload {
+  const list = renames.filter((r) => r.fromColumn.trim() !== "" && r.toColumn.trim() !== "");
+  if (list.length === 0) return csv;
+  let headers = [...csv.headers];
+  let rows = csv.rows.map((row) => ({ ...row }));
+  for (const { fromColumn, toColumn } of list) {
+    const from = fromColumn.trim();
+    const to = toColumn.trim();
+    if (!headers.includes(from) || from === to) continue;
+    if (headers.includes(to)) continue;
+    headers = headers.map((h) => (h === from ? to : h));
+    rows = rows.map((row) => {
+      const next = { ...row };
+      next[to] = row[from] ?? "";
+      delete next[from];
+      return next;
+    });
+  }
+  return { headers, rows };
+}
+
 function resolveNodeOutput(
   nodeId: string,
   viaSourceHandle: string | null,
@@ -102,7 +123,10 @@ function resolveNodeOutput(
   switch (node.type) {
     case "csvSource": {
       const sourceNode = node as Extract<AppNode, { type: "csvSource" }>;
-      return sourceNode.data.csv ?? null;
+      const csv = sourceNode.data.csv ?? null;
+      if (csv == null) return null;
+      const renames = sourceNode.data.httpColumnRenames ?? [];
+      return applyHttpColumnRenames(csv, renames);
     }
     case "visualization": {
       const incoming = getIncomingEdge(nodeId, edges);

@@ -16,10 +16,29 @@ export type CsvSourceData = {
   fileName: string | null;
   error: string | null;
   loadedAt: number | null;
-  /** GET URL (absolute) for remote CSV/JSON; used when loading via URL tab. */
+  /** Base URL for remote CSV/JSON; used when loading via URL tab. */
   httpUrl: string;
   httpParams: HttpFetchKv[];
   httpHeaders: HttpFetchKv[];
+  httpMethod: "GET" | "POST";
+  /** Raw body for POST (often JSON). */
+  httpBody: string;
+  /** Dot path to JSON array when the root is an object (e.g. `data` for `{ "data": [...] }`). */
+  httpJsonArrayPath: string;
+  httpTimeoutMs: number;
+  /** Extra GET attempts after the first, for network errors or HTTP 429. */
+  httpMaxRetries: number;
+  /** Poll interval in seconds; 0 disables auto-refresh. */
+  httpAutoRefreshSec: number;
+  httpAutoRefreshPaused: boolean;
+  /** Last successful HTTP response metadata (URL tab). */
+  httpLastDiagnostics: {
+    status: number;
+    contentType: string | null;
+    bodyByteLength: number;
+    resolvedUrl: string;
+  } | null;
+  httpColumnRenames: HttpColumnRename[];
 };
 
 export type CsvSourceNode = Node<CsvSourceData, "csvSource">;
@@ -29,6 +48,13 @@ export type HttpFetchKv = {
   id: string;
   key: string;
   value: string;
+};
+
+/** Rename upstream column headers after HTTP load (applied when data leaves the CSV source). */
+export type HttpColumnRename = {
+  id: string;
+  fromColumn: string;
+  toColumn: string;
 };
 
 export type FilterOp = "eq" | "ne" | "contains" | "startsWith" | "gt" | "lt";
@@ -330,6 +356,15 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
   httpUrl: "",
   httpParams: [],
   httpHeaders: [],
+  httpMethod: "GET",
+  httpBody: "",
+  httpJsonArrayPath: "",
+  httpTimeoutMs: 60_000,
+  httpMaxRetries: 1,
+  httpAutoRefreshSec: 0,
+  httpAutoRefreshPaused: false,
+  httpLastDiagnostics: null,
+  httpColumnRenames: [],
 });
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {

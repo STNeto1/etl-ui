@@ -1,9 +1,11 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import {
   buildRequestUrl,
+  enhanceFetchErrorMessage,
   fetchToCsvPayload,
   parseCsvText,
   parseJsonArrayToCsvPayload,
+  parseNdjsonLinesToCsvPayload,
   parseResponseBody,
 } from "./runHttpFetch";
 import type { HttpFetchKv } from "../types/flow";
@@ -47,6 +49,12 @@ describe("buildRequestUrl", () => {
 });
 
 describe("parseJsonArrayToCsvPayload", () => {
+  it("parses array at JSON path", () => {
+    const text = JSON.stringify({ data: [{ x: "1" }] });
+    const r = parseJsonArrayToCsvPayload(text, "data");
+    expect(r).toEqual({ csv: { headers: ["x"], rows: [{ x: "1" }] } });
+  });
+
   it("parses array and orders headers by first-seen across rows", () => {
     const text = JSON.stringify([
       { a: "1", b: "2" },
@@ -85,6 +93,18 @@ describe("parseCsvText", () => {
   });
 });
 
+describe("parseNdjsonLinesToCsvPayload", () => {
+  it("parses one JSON object per line", () => {
+    const r = parseNdjsonLinesToCsvPayload('{"a":"1"}\n{"b":"2"}');
+    expect(r).toEqual({
+      csv: {
+        headers: ["a", "b"],
+        rows: [{ a: "1", b: "" }, { a: "", b: "2" }],
+      },
+    });
+  });
+});
+
 describe("parseResponseBody", () => {
   it("uses JSON path when Content-Type is application/json", () => {
     const r = parseResponseBody('[{"x":"1"}]', "application/json; charset=utf-8");
@@ -95,11 +115,38 @@ describe("parseResponseBody", () => {
     const r = parseResponseBody("a,b\n1,2\n", "text/csv");
     expect("csv" in r && r.csv.headers).toEqual(["a", "b"]);
   });
+
+  it("uses NDJSON when Content-Type declares x-ndjson", () => {
+    const r = parseResponseBody('{"u":"a"}\n{"u":"b"}', "application/x-ndjson");
+    expect(r).toEqual({
+      csv: { headers: ["u"], rows: [{ u: "a" }, { u: "b" }] },
+    });
+  });
+
+  it("passes json array path for object JSON", () => {
+    const r = parseResponseBody(JSON.stringify({ items: [{ k: "1" }] }), "application/json", {
+      jsonArrayPath: "items",
+    });
+    expect(r).toEqual({ csv: { headers: ["k"], rows: [{ k: "1" }] } });
+  });
+});
+
+describe("enhanceFetchErrorMessage", () => {
+  it("adds CORS hint for generic failed fetch", () => {
+    const m = enhanceFetchErrorMessage("Failed to fetch", "https://api.example.com/x");
+    expect(m).toContain("CORS");
+    expect(m).toContain("api.example.com");
+  });
 });
 
 describe("fetchToCsvPayload", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("rejects http URL when requireHttps is true", async () => {
+    const r = await fetchToCsvPayload("http://example.com/x", [], { requireHttps: true });
+    expect(r).toEqual({ ok: false, error: "Only https:// URLs are allowed in production builds" });
   });
 
   it("returns error when response is not ok", async () => {
@@ -114,7 +161,7 @@ describe("fetchToCsvPayload", () => {
       }),
     );
     const r = await fetchToCsvPayload("https://example.com/x", []);
-    expect(r).toEqual({ ok: false, error: "HTTP 404 Not Found" });
+    expect(r).toMatchObject({ ok: false, error: "HTTP 404 Not Found", status: 404 });
   });
 
   it("returns csv on success", async () => {
@@ -128,10 +175,12 @@ describe("fetchToCsvPayload", () => {
       }),
     );
     const r = await fetchToCsvPayload("https://example.com/data", []);
-    expect(r).toEqual({
-      ok: true,
-      csv: { headers: ["id"], rows: [{ id: "1" }] },
-      contentType: "application/json",
-    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.csv).toEqual({ headers: ["id"], rows: [{ id: "1" }] });
+      expect(r.contentType).toBe("application/json");
+      expect(r.status).toBe(200);
+      expect(r.bodyByteLength).toBe(new TextEncoder().encode('[{"id":"1"}]').length);
+    }
   });
 });

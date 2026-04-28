@@ -1,14 +1,27 @@
-import { useCallback, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Papa from "papaparse";
 import { Handle, Position, useReactFlow, type NodeProps } from "@xyflow/react";
+import { buildCurlCommand } from "../httpFetch/buildCurl";
 import { buildRequestUrl, fetchToCsvPayload } from "../httpFetch/runHttpFetch";
-import type { CsvPayload, CsvSourceData, CsvSourceKind, CsvSourceNode, HttpFetchKv } from "../types/flow";
+import type {
+  CsvPayload,
+  CsvSourceData,
+  CsvSourceKind,
+  CsvSourceNode,
+  HttpColumnRename,
+  HttpFetchKv,
+} from "../types/flow";
 import { inferColumnTypes } from "./inferCsvColumnTypes";
+import { HttpKvRows } from "./components/HttpKvRows";
 
 type SourceTab = "load" | "url" | "types";
 
 function newHttpKv(): HttpFetchKv {
   return { id: crypto.randomUUID(), key: "", value: "" };
+}
+
+function newHttpColumnRename(): HttpColumnRename {
+  return { id: crypto.randomUUID(), fromColumn: "", toColumn: "" };
 }
 
 function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>): {
@@ -136,6 +149,22 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
   const httpUrl = data.httpUrl ?? "";
   const httpParams = useMemo(() => data.httpParams ?? [], [data.httpParams]);
   const httpHeaders = useMemo(() => data.httpHeaders ?? [], [data.httpHeaders]);
+  const httpMethod = data.httpMethod ?? "GET";
+  const httpBody = data.httpBody ?? "";
+  const httpJsonArrayPath = data.httpJsonArrayPath ?? "";
+  const httpTimeoutMs = data.httpTimeoutMs ?? 60_000;
+  const httpMaxRetries = data.httpMaxRetries ?? 1;
+  const httpAutoRefreshSec = data.httpAutoRefreshSec ?? 0;
+  const httpAutoRefreshPaused = data.httpAutoRefreshPaused ?? false;
+
+  const [resolvedUrlPreview, setResolvedUrlPreview] = useState<string>("");
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const built = buildRequestUrl(httpUrl, httpParams);
+      setResolvedUrlPreview("error" in built ? built.error : built.url);
+    }, 280);
+    return () => window.clearTimeout(t);
+  }, [httpUrl, httpParams]);
 
   const onHttpRefresh = useCallback(async () => {
     const built = buildRequestUrl(httpUrl, httpParams);
@@ -145,7 +174,15 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     }
     setBusy(true);
     patchData({ error: null });
-    const result = await fetchToCsvPayload(built.url, httpHeaders);
+    const requireHttps = import.meta.env.PROD;
+    const result = await fetchToCsvPayload(built.url, httpHeaders, {
+      method: httpMethod,
+      body: httpMethod === "POST" ? httpBody : null,
+      jsonArrayPath: httpJsonArrayPath,
+      timeoutMs: httpTimeoutMs,
+      maxRetries: httpMaxRetries,
+      requireHttps,
+    });
     setBusy(false);
     if (result.ok) {
       let fileLabel: string;
@@ -154,11 +191,36 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       } catch {
         fileLabel = "HTTP";
       }
-      applySuccess(result.csv, "http", fileLabel);
+      patchData({
+        csv: result.csv,
+        source: "http",
+        fileName: fileLabel,
+        error: null,
+        loadedAt: Date.now(),
+        httpLastDiagnostics: {
+          status: result.status,
+          contentType: result.contentType,
+          bodyByteLength: result.bodyByteLength,
+          resolvedUrl: built.url,
+        },
+      });
     } else {
-      patchData({ error: result.error });
+      patchData({ error: result.error, httpLastDiagnostics: null });
     }
-  }, [applySuccess, httpHeaders, httpParams, httpUrl, patchData]);
+  }, [httpBody, httpHeaders, httpJsonArrayPath, httpMaxRetries, httpMethod, httpParams, httpTimeoutMs, httpUrl, patchData]);
+
+  const httpRefreshRef = useRef(onHttpRefresh);
+  useEffect(() => {
+    httpRefreshRef.current = onHttpRefresh;
+  }, [onHttpRefresh]);
+
+  useEffect(() => {
+    if (tab !== "url" || httpAutoRefreshSec <= 0 || httpAutoRefreshPaused) return;
+    const id = window.setInterval(() => {
+      void httpRefreshRef.current();
+    }, httpAutoRefreshSec * 1000);
+    return () => window.clearInterval(id);
+  }, [tab, httpAutoRefreshPaused, httpAutoRefreshSec]);
 
   const addHttpParam = useCallback(() => {
     patchData({ httpParams: [...httpParams, newHttpKv()] });
@@ -200,12 +262,48 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     [httpHeaders, patchData],
   );
 
+  const httpColumnRenames = useMemo(() => data.httpColumnRenames ?? [], [data.httpColumnRenames]);
+
+  const addColumnRename = useCallback(() => {
+    patchData({ httpColumnRenames: [...httpColumnRenames, newHttpColumnRename()] });
+  }, [httpColumnRenames, patchData]);
+
+  const updateColumnRename = useCallback(
+    (rowId: string, patch: Partial<HttpColumnRename>) => {
+      patchData({
+        httpColumnRenames: httpColumnRenames.map((r) => (r.id === rowId ? { ...r, ...patch } : r)),
+      });
+    },
+    [httpColumnRenames, patchData],
+  );
+
+  const removeColumnRename = useCallback(
+    (rowId: string) => {
+      patchData({ httpColumnRenames: httpColumnRenames.filter((r) => r.id !== rowId) });
+    },
+    [httpColumnRenames, patchData],
+  );
+
+  const onCopyCurl = useCallback(() => {
+    const curl = buildCurlCommand(httpUrl, httpParams, httpHeaders, {
+      method: httpMethod,
+      body: httpBody,
+    });
+    if ("error" in curl) {
+      patchData({ error: curl.error });
+      return;
+    }
+    void navigator.clipboard.writeText(curl.command).catch(() => {
+      patchData({ error: "Could not copy to clipboard" });
+    });
+  }, [httpBody, httpHeaders, httpMethod, httpParams, httpUrl, patchData]);
+
   const rowCount = data.csv?.rows.length ?? 0;
   const status =
     data.error != null ? "error" : data.csv != null ? "ready" : "empty";
 
   return (
-    <div className="min-w-[360px] max-w-[300px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
+    <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         CSV source
       </div>
@@ -293,7 +391,9 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             </span>
           )}
           {!busy && status === "error" && (
-            <span className="text-red-600">{data.error}</span>
+            <span className="text-red-600" role="alert">
+              {data.error}
+            </span>
           )}
         </div>
       </div>
@@ -307,56 +407,165 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       >
         <p className="text-sm font-medium text-neutral-900">Load from URL</p>
         <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">
-          GET with query params and optional headers. Last successful response is cached in this workspace.
-          Browser CORS applies. Header values are saved with the graph.
+          GET or POST; CSV, JSON array (optional path), or NDJSON. Last successful response is cached in this workspace.
+          Browser CORS applies. Sensitive header values use a masked field.
         </p>
         <div
           className="nodrag nopan mt-2 space-y-2"
           onPointerDownCapture={(e) => e.stopPropagation()}
         >
+          <div className="flex flex-wrap gap-2">
+            <label className="block min-w-[120px] flex-1">
+              <span className="text-[11px] font-medium text-neutral-700">Method</span>
+              <select
+                aria-label="HTTP method"
+                value={httpMethod}
+                onChange={(e) =>
+                  patchData({ httpMethod: e.target.value === "POST" ? "POST" : "GET" })
+                }
+                className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
+              >
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+              </select>
+            </label>
+            <label className="block min-w-[100px] flex-1">
+              <span className="text-[11px] font-medium text-neutral-700">Timeout (s)</span>
+              <input
+                type="number"
+                min={1}
+                max={300}
+                aria-label="Request timeout in seconds"
+                value={Math.round(httpTimeoutMs / 1000)}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  if (!Number.isFinite(n)) return;
+                  patchData({ httpTimeoutMs: Math.min(300_000, Math.max(1000, n * 1000)) });
+                }}
+                className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
+              />
+            </label>
+            <label className="block min-w-[100px] flex-1">
+              <span className="text-[11px] font-medium text-neutral-700">GET retries</span>
+              <input
+                type="number"
+                min={0}
+                max={2}
+                aria-label="Extra GET retries on network or 429"
+                value={httpMaxRetries}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  if (!Number.isFinite(n)) return;
+                  patchData({ httpMaxRetries: Math.min(2, Math.max(0, n)) });
+                }}
+                disabled={httpMethod !== "GET"}
+                className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900 disabled:opacity-50"
+              />
+            </label>
+          </div>
+
           <label className="block">
             <span className="text-[11px] font-medium text-neutral-700">URL</span>
             <input
               type="url"
               value={httpUrl}
               onChange={(e) => patchData({ httpUrl: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !busy) {
+                  e.preventDefault();
+                  void onHttpRefresh();
+                }
+              }}
+              aria-label="HTTP request URL"
               placeholder="https://api.example.com/data"
               className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
             />
           </label>
+          <p className="break-all text-[9px] leading-snug text-neutral-400" title={resolvedUrlPreview}>
+            Resolved: {resolvedUrlPreview || "—"}
+          </p>
+
+          {httpMethod === "POST" && (
+            <label className="block">
+              <span className="text-[11px] font-medium text-neutral-700">POST body</span>
+              <textarea
+                value={httpBody}
+                onChange={(e) => patchData({ httpBody: e.target.value })}
+                aria-label="POST request body"
+                rows={4}
+                placeholder='{"query":"..."}'
+                className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 font-mono text-[10px] text-neutral-900"
+              />
+            </label>
+          )}
+
+          <label className="block">
+            <span className="text-[11px] font-medium text-neutral-700">JSON array path</span>
+            <input
+              value={httpJsonArrayPath}
+              onChange={(e) => patchData({ httpJsonArrayPath: e.target.value })}
+              aria-label="Dot path to JSON array when root is an object"
+              placeholder="e.g. data (empty = root must be an array)"
+              className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
+            />
+          </label>
+
+          <HttpKvRows
+            sectionLabel="Query params"
+            rows={httpParams}
+            onAdd={addHttpParam}
+            onUpdate={updateHttpParam}
+            onRemove={removeHttpParam}
+            emptyMessage="No query parameters."
+          />
+          <HttpKvRows
+            sectionLabel="Headers"
+            rows={httpHeaders}
+            onAdd={addHttpHeader}
+            onUpdate={updateHttpHeader}
+            onRemove={removeHttpHeader}
+            keyPlaceholder="Header name"
+            emptyMessage="No custom headers."
+            maskSensitiveHeaderValues
+          />
 
           <div>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-medium text-neutral-700">Query params</span>
+              <span className="text-[11px] font-medium text-neutral-700">Column renames</span>
               <button
                 type="button"
-                onClick={addHttpParam}
+                onClick={addColumnRename}
                 className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-[10px] font-medium text-neutral-700 hover:bg-neutral-50"
               >
                 Add
               </button>
             </div>
-            {httpParams.length === 0 ? (
-              <p className="mt-1 text-[10px] text-neutral-500">No params.</p>
+            {httpColumnRenames.length === 0 ? (
+              <p className="mt-1 text-[10px] text-neutral-500">
+                Optional: rename columns after load (downstream graph sees new names).
+              </p>
             ) : (
               <ul className="mt-1 space-y-1">
-                {httpParams.map((p) => (
-                  <li key={p.id} className="flex gap-1">
+                {httpColumnRenames.map((r) => (
+                  <li key={r.id} className="flex gap-1">
                     <input
-                      value={p.key}
-                      onChange={(e) => updateHttpParam(p.id, { key: e.target.value })}
-                      placeholder="name"
+                      aria-label="Rename from column"
+                      value={r.fromColumn}
+                      onChange={(e) => updateColumnRename(r.id, { fromColumn: e.target.value })}
+                      placeholder="from"
                       className="min-w-0 flex-1 rounded border border-neutral-300 px-1 py-0.5 text-[11px]"
                     />
                     <input
-                      value={p.value}
-                      onChange={(e) => updateHttpParam(p.id, { value: e.target.value })}
-                      placeholder="value"
+                      aria-label="Rename to column"
+                      value={r.toColumn}
+                      onChange={(e) => updateColumnRename(r.id, { toColumn: e.target.value })}
+                      placeholder="to"
                       className="min-w-0 flex-1 rounded border border-neutral-300 px-1 py-0.5 text-[11px]"
                     />
                     <button
                       type="button"
-                      onClick={() => removeHttpParam(p.id)}
+                      aria-label="Remove column rename row"
+                      onClick={() => removeColumnRename(r.id)}
                       className="shrink-0 rounded px-1.5 text-[10px] text-red-600 hover:bg-red-50"
                     >
                       ×
@@ -367,68 +576,85 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             )}
           </div>
 
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-medium text-neutral-700">Headers</span>
-              <button
-                type="button"
-                onClick={addHttpHeader}
-                className="rounded border border-neutral-300 bg-white px-2 py-0.5 text-[10px] font-medium text-neutral-700 hover:bg-neutral-50"
-              >
-                Add
-              </button>
-            </div>
-            {httpHeaders.length === 0 ? (
-              <p className="mt-1 text-[10px] text-neutral-500">No custom headers.</p>
-            ) : (
-              <ul className="mt-1 space-y-1">
-                {httpHeaders.map((h) => (
-                  <li key={h.id} className="flex gap-1">
-                    <input
-                      value={h.key}
-                      onChange={(e) => updateHttpHeader(h.id, { key: e.target.value })}
-                      placeholder="Authorization"
-                      className="min-w-0 flex-1 rounded border border-neutral-300 px-1 py-0.5 text-[11px]"
-                    />
-                    <input
-                      value={h.value}
-                      onChange={(e) => updateHttpHeader(h.id, { value: e.target.value })}
-                      placeholder="value"
-                      className="min-w-0 flex-1 rounded border border-neutral-300 px-1 py-0.5 text-[11px]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeHttpHeader(h.id)}
-                      className="shrink-0 rounded px-1.5 text-[10px] text-red-600 hover:bg-red-50"
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+          <div className="flex flex-wrap gap-2 border-t border-neutral-100 pt-2">
+            <label className="flex min-w-[140px] flex-1 items-center gap-2 text-[10px] text-neutral-700">
+              <span>Auto-refresh (s)</span>
+              <input
+                type="number"
+                min={0}
+                max={86400}
+                aria-label="Auto refresh interval in seconds, 0 to disable"
+                value={httpAutoRefreshSec}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  if (!Number.isFinite(n)) return;
+                  patchData({ httpAutoRefreshSec: Math.min(86_400, Math.max(0, n)) });
+                }}
+                className="w-20 rounded border border-neutral-300 px-1 py-0.5"
+              />
+            </label>
+            <label className="flex cursor-pointer items-center gap-1.5 text-[10px] text-neutral-700">
+              <input
+                type="checkbox"
+                checked={httpAutoRefreshPaused}
+                onChange={(e) => patchData({ httpAutoRefreshPaused: e.target.checked })}
+                aria-label="Pause auto refresh"
+              />
+              Pause auto-refresh
+            </label>
           </div>
 
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void onHttpRefresh()}
-            className="w-full rounded border border-neutral-400 bg-neutral-100 py-1.5 text-[11px] font-medium text-neutral-800 hover:bg-neutral-200 disabled:opacity-50"
-          >
-            {busy ? "Fetching…" : "Refresh"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onHttpRefresh()}
+              className="min-w-0 flex-1 rounded border border-neutral-400 bg-neutral-100 py-1.5 text-[11px] font-medium text-neutral-800 hover:bg-neutral-200 disabled:opacity-50"
+            >
+              {busy ? "Fetching…" : "Refresh"}
+            </button>
+            <button
+              type="button"
+              onClick={onCopyCurl}
+              className="shrink-0 rounded border border-neutral-300 bg-white px-2 py-1.5 text-[10px] font-medium text-neutral-700 hover:bg-neutral-50"
+            >
+              Copy cURL
+            </button>
+          </div>
 
           {data.source === "http" && data.loadedAt != null && (
-            <p className="text-[10px] text-neutral-500">
-              Last fetch:{" "}
-              {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(
-                data.loadedAt,
+            <div className="space-y-0.5 text-[10px] text-neutral-500">
+              <p>
+                Last fetch:{" "}
+                {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(
+                  data.loadedAt,
+                )}
+                {data.fileName != null && (
+                  <>
+                    {" "}
+                    · <span className="text-neutral-600">{data.fileName}</span>
+                  </>
+                )}
+              </p>
+              {data.httpLastDiagnostics != null && (
+                <p className="break-all text-neutral-600">
+                  HTTP {data.httpLastDiagnostics.status}
+                  {data.httpLastDiagnostics.contentType != null &&
+                    ` · ${data.httpLastDiagnostics.contentType}`}
+                  {" · "}
+                  {data.httpLastDiagnostics.bodyByteLength} bytes
+                  <br />
+                  <span className="text-neutral-500">{data.httpLastDiagnostics.resolvedUrl}</span>
+                </p>
               )}
-            </p>
+            </div>
           )}
 
           {data.error != null && tab === "url" && (
-            <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-900">
+            <p
+              className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-900"
+              role="alert"
+            >
               {data.error}
             </p>
           )}

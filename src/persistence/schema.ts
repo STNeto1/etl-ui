@@ -4,6 +4,7 @@ import type {
   AppNode,
   CsvSourceData,
   FilterOp,
+  HttpColumnRename,
   JoinKind,
   MergeUnionDedupeMode,
   SortDirection,
@@ -85,6 +86,22 @@ function sanitizeHttpKvList(value: unknown): { id: string; key: string; value: s
     .filter((row): row is NonNullable<typeof row> => row != null);
 }
 
+function sanitizeHttpColumnRenames(value: unknown): HttpColumnRename[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((row): row is Record<string, unknown> => isRecord(row))
+    .map((row) => {
+      const rowId = asString(row.id);
+      if (rowId == null) return null;
+      return {
+        id: rowId,
+        fromColumn: asString(row.fromColumn) ?? "",
+        toColumn: asString(row.toColumn) ?? "",
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
+}
+
 function sanitizeFilterOp(value: unknown): FilterOp | null {
   switch (value) {
     case "eq":
@@ -134,6 +151,26 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
     const sourceRaw = data.source;
     const source =
       sourceRaw === "file" || sourceRaw === "template" || sourceRaw === "http" ? sourceRaw : defaults.source;
+    const methodRaw = data.httpMethod;
+    const httpMethod = methodRaw === "POST" ? "POST" : defaults.httpMethod;
+    const httpTimeoutMs = asNumber(data.httpTimeoutMs);
+    const httpMaxRetries = asNumber(data.httpMaxRetries);
+    const httpAutoRefreshSec = asNumber(data.httpAutoRefreshSec);
+    const httpLastDiagnosticsRaw = data.httpLastDiagnostics;
+    let httpLastDiagnostics: CsvSourceData["httpLastDiagnostics"] = defaults.httpLastDiagnostics;
+    if (isRecord(httpLastDiagnosticsRaw)) {
+      const st = asNumber(httpLastDiagnosticsRaw.status);
+      const bodyByteLength = asNumber(httpLastDiagnosticsRaw.bodyByteLength);
+      const resolvedUrl = asString(httpLastDiagnosticsRaw.resolvedUrl);
+      if (st != null && bodyByteLength != null && resolvedUrl != null) {
+        httpLastDiagnostics = {
+          status: st,
+          contentType: asString(httpLastDiagnosticsRaw.contentType),
+          bodyByteLength,
+          resolvedUrl,
+        };
+      }
+    }
     return {
       id,
       type: "csvSource",
@@ -147,6 +184,24 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
         httpUrl: asString(data.httpUrl) ?? defaults.httpUrl,
         httpParams: sanitizeHttpKvList(data.httpParams),
         httpHeaders: sanitizeHttpKvList(data.httpHeaders),
+        httpMethod,
+        httpBody: asString(data.httpBody) ?? defaults.httpBody,
+        httpJsonArrayPath: asString(data.httpJsonArrayPath) ?? defaults.httpJsonArrayPath,
+        httpTimeoutMs:
+          httpTimeoutMs != null && httpTimeoutMs >= 1000 && httpTimeoutMs <= 300_000
+            ? Math.floor(httpTimeoutMs)
+            : defaults.httpTimeoutMs,
+        httpMaxRetries:
+          httpMaxRetries != null && httpMaxRetries >= 0 && httpMaxRetries <= 2
+            ? Math.floor(httpMaxRetries)
+            : defaults.httpMaxRetries,
+        httpAutoRefreshSec:
+          httpAutoRefreshSec != null && httpAutoRefreshSec >= 0 && httpAutoRefreshSec <= 86_400
+            ? Math.floor(httpAutoRefreshSec)
+            : defaults.httpAutoRefreshSec,
+        httpAutoRefreshPaused: asBoolean(data.httpAutoRefreshPaused) ?? defaults.httpAutoRefreshPaused,
+        httpLastDiagnostics,
+        httpColumnRenames: sanitizeHttpColumnRenames(data.httpColumnRenames),
       },
     };
   }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import type { AppNode } from "../types/flow";
+import { defaultCsvSourceData } from "../types/flow";
 import { WORKSPACE_SCHEMA_VERSION } from "./schema";
 import {
   loadWorkspaceSnapshot,
@@ -36,6 +37,7 @@ describe("workspaceStore", () => {
         type: "csvSource",
         position: { x: 0, y: 0 },
         data: {
+          ...defaultCsvSourceData(),
           csv: {
             headers: ["id", "name"],
             rows: [{ id: "1", name: "Ada" }],
@@ -44,9 +46,6 @@ describe("workspaceStore", () => {
           fileName: "template.csv",
           error: null,
           loadedAt: 123,
-          httpUrl: "",
-          httpParams: [],
-          httpHeaders: [],
         },
       },
       {

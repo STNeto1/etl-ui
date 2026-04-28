@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
-import type {
-  AggregateMetricDef,
-  AppNode,
-  ComputeColumnDef,
-  CsvPayload,
-  JoinNode,
-  MergeUnionNode,
-  SwitchBranch,
+import {
+  defaultCsvSourceData,
+  type AggregateMetricDef,
+  type AppNode,
+  type ComputeColumnDef,
+  type CsvPayload,
+  type JoinNode,
+  type MergeUnionNode,
+  type SwitchBranch,
 } from "../types/flow";
 import { getTabularOutput, getTabularOutputForEdge } from "./tabularOutput";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
@@ -20,14 +21,10 @@ function csvSourceNode(id: string, csv: CsvPayload): AppNode {
     type: "csvSource",
     position: { x: 0, y: 0 },
     data: {
+      ...defaultCsvSourceData(),
       csv,
       source: "template",
-      fileName: null,
-      error: null,
       loadedAt: Date.now(),
-      httpUrl: "",
-      httpParams: [],
-      httpHeaders: [],
     },
   };
 }
@@ -1170,17 +1167,36 @@ describe("getTabularOutput csvSource http", () => {
         type: "csvSource",
         position: { x: 0, y: 0 },
         data: {
+          ...defaultCsvSourceData(),
           csv: payload,
           source: "http",
           fileName: "api.example.com",
-          error: null,
           loadedAt: Date.now(),
           httpUrl: "https://api.example.com/data",
-          httpParams: [],
-          httpHeaders: [],
         },
       },
     ];
     expect(getTabularOutput("csv-remote", nodes, [])).toEqual(payload);
+  });
+
+  it("applies column renames from csv source data", () => {
+    const payload: CsvPayload = { headers: ["old"], rows: [{ old: "v" }] };
+    const nodes: AppNode[] = [
+      {
+        id: "csv-rn",
+        type: "csvSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultCsvSourceData(),
+          csv: payload,
+          source: "http",
+          httpColumnRenames: [{ id: "1", fromColumn: "old", toColumn: "new" }],
+        },
+      },
+    ];
+    expect(getTabularOutput("csv-rn", nodes, [])).toEqual({
+      headers: ["new"],
+      rows: [{ new: "v" }],
+    });
   });
 });

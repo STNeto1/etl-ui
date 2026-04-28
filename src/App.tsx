@@ -47,6 +47,7 @@ import {
   isPaletteNodeType,
 } from "./types/flow";
 import { loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "./persistence/workspaceStore";
+import { getDemoWorkspaceSnapshot } from "./workspace/demoFlow";
 
 const nodeTypes = {
   csvSource: CsvSourceNode,
@@ -293,6 +294,19 @@ function FlowWorkspace() {
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
       <NodePaletteSidebar />
       <div className="relative min-h-0 min-w-0 flex-1">
+        <div className="pointer-events-auto absolute right-2 top-2 z-10">
+          <button
+            type="button"
+            onClick={() => {
+              const snap = getDemoWorkspaceSnapshot();
+              setNodes(snap.nodes);
+              setEdges(snap.edges);
+            }}
+            className="rounded border border-neutral-300 bg-white/95 px-2 py-1 text-[11px] font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
+          >
+            Load demo workspace
+          </button>
+        </div>
         <ReactFlow
           nodes={nodes}
           edges={edges}
