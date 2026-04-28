@@ -3,6 +3,7 @@ import type { AppNode, FilterOp, MergeUnionDedupeMode } from "../types/flow";
 import {
   CSV_SOURCE_NODE_ID,
   defaultCsvSourceData,
+  defaultDownloadData,
   defaultFilterData,
   defaultMergeUnionData,
   defaultVisualizationData,
@@ -151,6 +152,19 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
         dedupeEnabled: asBoolean(data.dedupeEnabled) ?? defaults.dedupeEnabled,
         dedupeMode: sanitizeMergeMode(data.dedupeMode) ?? defaults.dedupeMode,
         dedupeKeys: asStringArray(data.dedupeKeys),
+      },
+    };
+  }
+
+  if (type === "download") {
+    const defaults = defaultDownloadData();
+    return {
+      id,
+      type: "download",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        fileName: asString(data.fileName) ?? defaults.fileName,
       },
     };
   }

@@ -56,10 +56,22 @@ export type MergeUnionNodeData = {
 
 export type MergeUnionNode = Node<MergeUnionNodeData, "mergeUnion">;
 
-export type AppNode = CsvSourceNode | FilterNode | VisualizationNode | MergeUnionNode;
+export type DownloadNodeData = {
+  label: string;
+  fileName: string;
+};
+
+export type DownloadNode = Node<DownloadNodeData, "download">;
+
+export type AppNode =
+  | CsvSourceNode
+  | FilterNode
+  | VisualizationNode
+  | MergeUnionNode
+  | DownloadNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
-export type PaletteNodeType = "visualization" | "filter" | "mergeUnion";
+export type PaletteNodeType = "visualization" | "filter" | "mergeUnion" | "download";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -85,6 +97,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Visualization",
     description: "Debug table preview (CSV or filtered upstream)",
   },
+  {
+    type: "download",
+    label: "Download",
+    description: "Export upstream output as CSV",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -105,6 +122,11 @@ export const defaultMergeUnionData = (): MergeUnionNodeData => ({
   dedupeKeys: [],
 });
 
+export const defaultDownloadData = (): DownloadNodeData => ({
+  label: "Download",
+  fileName: "export.csv",
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -114,5 +136,10 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
 });
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
-  return value === "visualization" || value === "filter" || value === "mergeUnion";
+  return (
+    value === "visualization" ||
+    value === "filter" ||
+    value === "mergeUnion" ||
+    value === "download"
+  );
 }

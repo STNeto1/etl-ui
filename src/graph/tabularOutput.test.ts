@@ -58,6 +58,15 @@ function visualizationNode(id: string): AppNode {
   };
 }
 
+function downloadNode(id: string): AppNode {
+  return {
+    id,
+    type: "download",
+    position: { x: 500, y: 0 },
+    data: { label: "Download", fileName: "export.csv" },
+  };
+}
+
 function edge(id: string, source: string, target: string): Edge {
   return { id, source, target };
 }
@@ -241,6 +250,39 @@ describe("getTabularOutput mergeUnion", () => {
     ];
 
     const output = getTabularOutput("viz-1", nodes, edges);
+    expect(output?.rows).toEqual([
+      { id: "1", name: "Ada" },
+      { id: "3", name: "Max" },
+    ]);
+  });
+
+  it("supports CSV -> Filter -> MergeUnion -> Download sink resolution", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+        ],
+      }),
+      csvSourceNode("src-2", {
+        headers: ["id", "name"],
+        rows: [{ id: "3", name: "Max" }],
+      }),
+      filterNode("filter-1"),
+      mergeNode("merge-1"),
+      downloadNode("download-1"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "filter-1"),
+      edge("e2", "filter-1", "merge-1"),
+      edge("e3", "src-2", "merge-1"),
+      edge("e4", "merge-1", "download-1"),
+    ];
+
+    const downloadInputEdge = edges.find((e) => e.target === "download-1");
+    const output =
+      downloadInputEdge == null ? null : getTabularOutput(downloadInputEdge.source, nodes, edges);
     expect(output?.rows).toEqual([
       { id: "1", name: "Ada" },
       { id: "3", name: "Max" },
