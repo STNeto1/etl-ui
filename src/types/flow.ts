@@ -1,5 +1,8 @@
 import type { Node } from "@xyflow/react";
 
+/** Fixed id for the sole CSV source node; removal is treated as a data reset, not graph delete. */
+export const CSV_SOURCE_NODE_ID = "csv-source" as const;
+
 export type CsvPayload = {
   headers: string[];
   rows: Record<string, string>[];
