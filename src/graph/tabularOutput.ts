@@ -35,6 +35,30 @@ function normalizeRows(payloads: CsvPayload[]): CsvPayload {
   return { headers, rows };
 }
 
+function compareSortValues(left: string | undefined, right: string | undefined, direction: "asc" | "desc"): number {
+  const leftValue = left ?? "";
+  const rightValue = right ?? "";
+  const leftTrimmed = leftValue.trim();
+  const rightTrimmed = rightValue.trim();
+  const leftEmpty = leftTrimmed.length === 0;
+  const rightEmpty = rightTrimmed.length === 0;
+
+  if (leftEmpty && rightEmpty) return 0;
+  if (leftEmpty) return 1;
+  if (rightEmpty) return -1;
+
+  const leftNumber = Number(leftTrimmed);
+  const rightNumber = Number(rightTrimmed);
+  const bothNumeric = Number.isFinite(leftNumber) && Number.isFinite(rightNumber);
+
+  const comparison = bothNumeric
+    ? leftNumber - rightNumber
+    : leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" });
+
+  if (comparison === 0) return 0;
+  return direction === "asc" ? comparison : -comparison;
+}
+
 /**
  * Tabular output **leaving** `nodeId`: CSV payload from a source, pass-through for Visualization,
  * or filtered rows for Filter. Used so chains like CSV → Visualization → Filter → Visualization work.
@@ -109,6 +133,38 @@ function resolveNodeOutput(
         return selectedRow;
       });
       return { headers, rows };
+    }
+    case "sort": {
+      const sortNode = node as Extract<AppNode, { type: "sort" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+
+      const keys = (sortNode.data.keys ?? []).filter((key) => input.headers.includes(key.column));
+      if (keys.length === 0) {
+        return {
+          headers: input.headers,
+          rows: [...input.rows],
+        };
+      }
+
+      const rows = input.rows
+        .map((row, index) => ({ row, index }))
+        .sort((left, right) => {
+          for (const key of keys) {
+            const comparison = compareSortValues(
+              left.row[key.column],
+              right.row[key.column],
+              key.direction,
+            );
+            if (comparison !== 0) return comparison;
+          }
+          return left.index - right.index;
+        })
+        .map((entry) => entry.row);
+
+      return { headers: input.headers, rows };
     }
     case "conditional": {
       const conditionalNode = node as Extract<AppNode, { type: "conditional" }>;

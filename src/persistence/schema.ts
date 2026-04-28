@@ -1,5 +1,5 @@
 import type { Edge } from "@xyflow/react";
-import type { AppNode, FilterOp, MergeUnionDedupeMode } from "../types/flow";
+import type { AppNode, FilterOp, MergeUnionDedupeMode, SortDirection } from "../types/flow";
 import {
   CSV_SOURCE_NODE_ID,
   defaultConditionalData,
@@ -8,6 +8,7 @@ import {
   defaultFilterData,
   defaultMergeUnionData,
   defaultSelectColumnsData,
+  defaultSortData,
   defaultVisualizationData,
 } from "../types/flow";
 
@@ -72,6 +73,10 @@ function sanitizeFilterOp(value: unknown): FilterOp | null {
 
 function sanitizeMergeMode(value: unknown): MergeUnionDedupeMode | null {
   return value === "fullRow" || value === "keyColumns" ? value : null;
+}
+
+function sanitizeSortDirection(value: unknown): SortDirection | null {
+  return value === "asc" || value === "desc" ? value : null;
 }
 
 function sanitizeNode(rawNode: unknown): AppNode | null {
@@ -207,6 +212,30 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       data: {
         label: asString(data.label) ?? defaults.label,
         selectedColumns: asStringArray(data.selectedColumns),
+      },
+    };
+  }
+
+  if (type === "sort") {
+    const defaults = defaultSortData();
+    const keys = Array.isArray(data.keys)
+      ? data.keys
+          .filter((key): key is Record<string, unknown> => isRecord(key))
+          .map((key) => {
+            const column = asString(key.column);
+            const direction = sanitizeSortDirection(key.direction);
+            if (column == null || direction == null) return null;
+            return { column, direction };
+          })
+          .filter((key): key is NonNullable<typeof key> => key != null)
+      : defaults.keys;
+    return {
+      id,
+      type: "sort",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        keys,
       },
     };
   }

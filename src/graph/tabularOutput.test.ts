@@ -93,6 +93,18 @@ function selectColumnsNode(id: string, selectedColumns: string[]): AppNode {
   };
 }
 
+function sortNode(id: string, keys: Array<{ column: string; direction: "asc" | "desc" }>): AppNode {
+  return {
+    id,
+    type: "sort",
+    position: { x: 320, y: 120 },
+    data: {
+      label: "Sort",
+      keys,
+    },
+  };
+}
+
 function edge(id: string, source: string, target: string, sourceHandle?: string): Edge {
   return { id, source, target, sourceHandle };
 }
@@ -458,5 +470,118 @@ describe("getTabularOutput mergeUnion", () => {
       headers: ["name"],
       rows: [{ name: "Ada" }, { name: "Lin" }],
     });
+  });
+
+  it("sorts by one key ascending and descending", () => {
+    const source = csvSourceNode("src-1", {
+      headers: ["id", "name"],
+      rows: [
+        { id: "2", name: "Lin" },
+        { id: "1", name: "Ada" },
+      ],
+    });
+    const ascNodes: AppNode[] = [source, sortNode("sort-asc", [{ column: "id", direction: "asc" }])];
+    const descNodes: AppNode[] = [source, sortNode("sort-desc", [{ column: "id", direction: "desc" }])];
+    const ascEdges = [edge("e1", "src-1", "sort-asc")];
+    const descEdges = [edge("e2", "src-1", "sort-desc")];
+
+    expect(getTabularOutput("sort-asc", ascNodes, ascEdges)?.rows).toEqual([
+      { id: "1", name: "Ada" },
+      { id: "2", name: "Lin" },
+    ]);
+    expect(getTabularOutput("sort-desc", descNodes, descEdges)?.rows).toEqual([
+      { id: "2", name: "Lin" },
+      { id: "1", name: "Ada" },
+    ]);
+  });
+
+  it("sorts by multi-key priority order", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["group", "score", "name"],
+        rows: [
+          { group: "A", score: "8", name: "Lin" },
+          { group: "A", score: "8", name: "Ada" },
+          { group: "A", score: "10", name: "Max" },
+          { group: "B", score: "7", name: "Zoe" },
+        ],
+      }),
+      sortNode("sort-1", [
+        { column: "group", direction: "asc" },
+        { column: "score", direction: "desc" },
+        { column: "name", direction: "asc" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "sort-1")];
+
+    expect(getTabularOutput("sort-1", nodes, edges)?.rows).toEqual([
+      { group: "A", score: "10", name: "Max" },
+      { group: "A", score: "8", name: "Ada" },
+      { group: "A", score: "8", name: "Lin" },
+      { group: "B", score: "7", name: "Zoe" },
+    ]);
+  });
+
+  it("auto-compares numerically when both values are numeric", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["value"],
+        rows: [{ value: "10" }, { value: "2" }, { value: "A" }],
+      }),
+      sortNode("sort-1", [{ column: "value", direction: "asc" }]),
+    ];
+    const edges = [edge("e1", "src-1", "sort-1")];
+
+    expect(getTabularOutput("sort-1", nodes, edges)?.rows).toEqual([
+      { value: "2" },
+      { value: "10" },
+      { value: "A" },
+    ]);
+  });
+
+  it("keeps empty values last regardless of sort direction", () => {
+    const source = csvSourceNode("src-1", {
+      headers: ["id", "score"],
+      rows: [
+        { id: "a", score: "" },
+        { id: "b", score: "2" },
+        { id: "c", score: "1" },
+      ],
+    });
+    const ascNodes: AppNode[] = [source, sortNode("sort-asc", [{ column: "score", direction: "asc" }])];
+    const descNodes: AppNode[] = [source, sortNode("sort-desc", [{ column: "score", direction: "desc" }])];
+    const ascEdges = [edge("e1", "src-1", "sort-asc")];
+    const descEdges = [edge("e2", "src-1", "sort-desc")];
+
+    expect(getTabularOutput("sort-asc", ascNodes, ascEdges)?.rows).toEqual([
+      { id: "c", score: "1" },
+      { id: "b", score: "2" },
+      { id: "a", score: "" },
+    ]);
+    expect(getTabularOutput("sort-desc", descNodes, descEdges)?.rows).toEqual([
+      { id: "b", score: "2" },
+      { id: "c", score: "1" },
+      { id: "a", score: "" },
+    ]);
+  });
+
+  it("supports CSV -> Sort -> Visualization flow", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "2", name: "Lin" },
+          { id: "1", name: "Ada" },
+        ],
+      }),
+      sortNode("sort-1", [{ column: "id", direction: "asc" }]),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [edge("e1", "src-1", "sort-1"), edge("e2", "sort-1", "viz-1")];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
+      { id: "1", name: "Ada" },
+      { id: "2", name: "Lin" },
+    ]);
   });
 });

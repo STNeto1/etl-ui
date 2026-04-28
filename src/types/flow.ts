@@ -80,6 +80,20 @@ export type SelectColumnsNodeData = {
 
 export type SelectColumnsNode = Node<SelectColumnsNodeData, "selectColumns">;
 
+export type SortDirection = "asc" | "desc";
+
+export type SortKey = {
+  column: string;
+  direction: SortDirection;
+};
+
+export type SortNodeData = {
+  label: string;
+  keys: SortKey[];
+};
+
+export type SortNode = Node<SortNodeData, "sort">;
+
 export type AppNode =
   | CsvSourceNode
   | FilterNode
@@ -87,7 +101,8 @@ export type AppNode =
   | MergeUnionNode
   | DownloadNode
   | ConditionalNode
-  | SelectColumnsNode;
+  | SelectColumnsNode
+  | SortNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -96,7 +111,8 @@ export type PaletteNodeType =
   | "mergeUnion"
   | "download"
   | "conditional"
-  | "selectColumns";
+  | "selectColumns"
+  | "sort";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -137,6 +153,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Select Columns",
     description: "Keep only selected upstream columns",
   },
+  {
+    type: "sort",
+    label: "Sort",
+    description: "Order rows by one or more columns",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -173,6 +194,11 @@ export const defaultSelectColumnsData = (): SelectColumnsNodeData => ({
   selectedColumns: [],
 });
 
+export const defaultSortData = (): SortNodeData => ({
+  label: "Sort",
+  keys: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -188,6 +214,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "mergeUnion" ||
     value === "download" ||
     value === "conditional" ||
-    value === "selectColumns"
+    value === "selectColumns" ||
+    value === "sort"
   );
 }
