@@ -93,6 +93,37 @@ export type MergeUnionNodeData = {
 
 export type MergeUnionNode = Node<MergeUnionNodeData, "mergeUnion">;
 
+export type DeduplicateNodeData = {
+  label: string;
+  dedupeMode: MergeUnionDedupeMode;
+  dedupeKeys: string[];
+};
+
+export type DeduplicateNode = Node<DeduplicateNodeData, "deduplicate">;
+
+export type LimitSampleMode = "first" | "random";
+
+export type LimitSampleNodeData = {
+  label: string;
+  limitSampleMode: LimitSampleMode;
+  /** Number of rows to keep (first N) or sample (random); clamped to >= 0 when loading. */
+  rowCount: number;
+  /** Integer seed for reproducible random samples. */
+  randomSeed: number;
+};
+
+export type LimitSampleNode = Node<LimitSampleNodeData, "limitSample">;
+
+export type UnnestArrayNodeData = {
+  label: string;
+  /** Column whose cells are JSON arrays to explode. */
+  column: string;
+  /** Output header for primitive array elements (ignored when elements are objects). */
+  primitiveOutputColumn: string;
+};
+
+export type UnnestArrayNode = Node<UnnestArrayNodeData, "unnestArray">;
+
 export type JoinKind = "inner" | "left";
 
 export type JoinKeyPair = {
@@ -252,13 +283,17 @@ export type AppNode =
   | AggregateNode
   | RenameColumnsNode
   | CastColumnsNode
-  | FillReplaceNode;
+  | FillReplaceNode
+  | DeduplicateNode
+  | LimitSampleNode
+  | UnnestArrayNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
   | "visualization"
   | "filter"
   | "mergeUnion"
+  | "deduplicate"
   | "join"
   | "download"
   | "conditional"
@@ -269,7 +304,9 @@ export type PaletteNodeType =
   | "aggregate"
   | "renameColumns"
   | "castColumns"
-  | "fillReplace";
+  | "fillReplace"
+  | "limitSample"
+  | "unnestArray";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -289,6 +326,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     type: "mergeUnion",
     label: "Merge / Union",
     description: "Append multiple upstream paths into one table",
+  },
+  {
+    type: "deduplicate",
+    label: "Deduplicate",
+    description: "Drop duplicate rows by full row or selected key columns (first wins)",
   },
   {
     type: "join",
@@ -350,6 +392,16 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Aggregate",
     description: "Group rows and compute count, sum, avg, min, max",
   },
+  {
+    type: "limitSample",
+    label: "Limit / Sample",
+    description: "Keep the first N rows or a reproducible random sample",
+  },
+  {
+    type: "unnestArray",
+    label: "Unnest array",
+    description: "Explode a JSON array column into multiple rows",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -368,6 +420,25 @@ export const defaultMergeUnionData = (): MergeUnionNodeData => ({
   dedupeEnabled: false,
   dedupeMode: "fullRow",
   dedupeKeys: [],
+});
+
+export const defaultDeduplicateData = (): DeduplicateNodeData => ({
+  label: "Deduplicate",
+  dedupeMode: "fullRow",
+  dedupeKeys: [],
+});
+
+export const defaultLimitSampleData = (): LimitSampleNodeData => ({
+  label: "Limit / Sample",
+  limitSampleMode: "first",
+  rowCount: 100,
+  randomSeed: 1,
+});
+
+export const defaultUnnestArrayData = (): UnnestArrayNodeData => ({
+  label: "Unnest array",
+  column: "",
+  primitiveOutputColumn: "value",
 });
 
 export const defaultJoinData = (): JoinNodeData => ({
@@ -454,6 +525,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "visualization" ||
     value === "filter" ||
     value === "mergeUnion" ||
+    value === "deduplicate" ||
     value === "join" ||
     value === "download" ||
     value === "conditional" ||
@@ -464,6 +536,8 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "aggregate" ||
     value === "renameColumns" ||
     value === "castColumns" ||
-    value === "fillReplace"
+    value === "fillReplace" ||
+    value === "limitSample" ||
+    value === "unnestArray"
   );
 }

@@ -168,6 +168,58 @@ function fillReplaceNode(
   };
 }
 
+function deduplicateNode(
+  id: string,
+  overrides?: Partial<{ dedupeMode: "fullRow" | "keyColumns"; dedupeKeys: string[] }>,
+): AppNode {
+  return {
+    id,
+    type: "deduplicate",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Deduplicate",
+      dedupeMode: "fullRow",
+      dedupeKeys: [],
+      ...overrides,
+    },
+  };
+}
+
+function limitSampleNode(
+  id: string,
+  overrides?: Partial<{ limitSampleMode: "first" | "random"; rowCount: number; randomSeed: number }>,
+): AppNode {
+  return {
+    id,
+    type: "limitSample",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Limit / Sample",
+      limitSampleMode: "first",
+      rowCount: 100,
+      randomSeed: 1,
+      ...overrides,
+    },
+  };
+}
+
+function unnestArrayNode(
+  id: string,
+  overrides?: Partial<{ column: string; primitiveOutputColumn: string }>,
+): AppNode {
+  return {
+    id,
+    type: "unnestArray",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Unnest array",
+      column: "",
+      primitiveOutputColumn: "value",
+      ...overrides,
+    },
+  };
+}
+
 function sortNode(id: string, keys: Array<{ column: string; direction: "asc" | "desc" }>): AppNode {
   return {
     id,
@@ -1375,6 +1427,90 @@ describe("getTabularOutput fillReplace", () => {
     expect(getTabularOutput("fr-1", nodes, edges)).toEqual({
       headers: ["a", "b"],
       rows: [{ a: "y", b: "y" }],
+    });
+  });
+});
+
+describe("getTabularOutput deduplicate", () => {
+  it("dedupes a single upstream by full row", () => {
+    const dup = { id: "1", name: "Ada" };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [dup, dup, { id: "2", name: "Lin" }],
+      }),
+      deduplicateNode("dd-1"),
+    ];
+    const edges = [edge("e1", "src-1", "dd-1")];
+    expect(getTabularOutput("dd-1", nodes, edges)).toEqual({
+      headers: ["id", "name"],
+      rows: [dup, { id: "2", name: "Lin" }],
+    });
+  });
+
+  it("no-ops key column mode with empty keys", () => {
+    const rows = [
+      { id: "1", name: "A" },
+      { id: "1", name: "B" },
+    ];
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", { headers: ["id", "name"], rows }),
+      deduplicateNode("dd-1", { dedupeMode: "keyColumns", dedupeKeys: [] }),
+    ];
+    const edges = [edge("e1", "src-1", "dd-1")];
+    expect(getTabularOutput("dd-1", nodes, edges)).toEqual({
+      headers: ["id", "name"],
+      rows,
+    });
+  });
+});
+
+describe("getTabularOutput limitSample", () => {
+  it("returns first N rows", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["n"],
+        rows: [{ n: "0" }, { n: "1" }, { n: "2" }],
+      }),
+      limitSampleNode("ls-1", { limitSampleMode: "first", rowCount: 2 }),
+    ];
+    const edges = [edge("e1", "src-1", "ls-1")];
+    expect(getTabularOutput("ls-1", nodes, edges)).toEqual({
+      headers: ["n"],
+      rows: [{ n: "0" }, { n: "1" }],
+    });
+  });
+
+  it("returns deterministic random sample for a fixed seed", () => {
+    const rows = [{ n: "0" }, { n: "1" }, { n: "2" }, { n: "3" }, { n: "4" }];
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", { headers: ["n"], rows }),
+      limitSampleNode("ls-1", { limitSampleMode: "random", rowCount: 3, randomSeed: 42 }),
+    ];
+    const edges = [edge("e1", "src-1", "ls-1")];
+    const a = getTabularOutput("ls-1", nodes, edges);
+    const b = getTabularOutput("ls-1", nodes, edges);
+    expect(a).toEqual(b);
+    expect(a?.rows).toHaveLength(3);
+  });
+});
+
+describe("getTabularOutput unnestArray", () => {
+  it("explodes a JSON array column", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "tags"],
+        rows: [{ id: "1", tags: '["a","b"]' }],
+      }),
+      unnestArrayNode("un-1", { column: "tags", primitiveOutputColumn: "tag" }),
+    ];
+    const edges = [edge("e1", "src-1", "un-1")];
+    expect(getTabularOutput("un-1", nodes, edges)).toEqual({
+      headers: ["id", "tag"],
+      rows: [
+        { id: "1", tag: "a" },
+        { id: "1", tag: "b" },
+      ],
     });
   });
 });

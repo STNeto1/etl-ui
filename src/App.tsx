@@ -32,6 +32,9 @@ import { ComputeColumnNode } from "./nodes/ComputeColumnNode";
 import { RenameColumnsNode } from "./nodes/RenameColumnsNode";
 import { CastColumnsNode } from "./nodes/CastColumnsNode";
 import { FillReplaceNode } from "./nodes/FillReplaceNode";
+import { DeduplicateNode } from "./nodes/DeduplicateNode";
+import { LimitSampleNode } from "./nodes/LimitSampleNode";
+import { UnnestArrayNode } from "./nodes/UnnestArrayNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
@@ -49,7 +52,10 @@ import {
   defaultComputeColumnData,
   defaultRenameColumnsData,
   defaultCastColumnsData,
+  defaultDeduplicateData,
   defaultFillReplaceData,
+  defaultLimitSampleData,
+  defaultUnnestArrayData,
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
@@ -85,6 +91,9 @@ const nodeTypes = {
   renameColumns: RenameColumnsNode,
   castColumns: CastColumnsNode,
   fillReplace: FillReplaceNode,
+  deduplicate: DeduplicateNode,
+  limitSample: LimitSampleNode,
+  unnestArray: UnnestArrayNode,
 };
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -424,6 +433,36 @@ function FlowWorkspace() {
             type: "fillReplace",
             position,
             data: defaultFillReplaceData(),
+          },
+        ]);
+      } else if (nodeType === "deduplicate") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "deduplicate",
+            position,
+            data: defaultDeduplicateData(),
+          },
+        ]);
+      } else if (nodeType === "limitSample") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "limitSample",
+            position,
+            data: defaultLimitSampleData(),
+          },
+        ]);
+      } else if (nodeType === "unnestArray") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "unnestArray",
+            position,
+            data: defaultUnnestArrayData(),
           },
         ]);
       }

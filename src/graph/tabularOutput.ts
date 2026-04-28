@@ -9,6 +9,9 @@ import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import { runJoin } from "../join/runJoin";
 import { parseSwitchSourceHandle } from "../switch/branches";
+import { dedupeRows } from "../dedupe/dedupeRows";
+import { applyLimitSample } from "../limitSample/applyLimitSample";
+import { applyUnnestArrayColumn } from "../unnest/applyUnnestArrayColumn";
 
 function visitKey(nodeId: string, branch: string | null): string {
   return `${nodeId}::${branch ?? "node"}`;
@@ -330,20 +333,38 @@ function resolveNodeOutput(
 
       const dedupeMode = mergeNode.data.dedupeMode ?? "fullRow";
       const dedupeKeys = mergeNode.data.dedupeKeys ?? [];
-      const dedupeHeaders = dedupeMode === "keyColumns" ? dedupeKeys : headers;
-      if (dedupeHeaders.length === 0) {
-        return { headers, rows: normalizedRows };
-      }
-
-      const seen = new Set<string>();
-      const rows: Record<string, string>[] = [];
-      for (const row of normalizedRows) {
-        const key = JSON.stringify(dedupeHeaders.map((header) => row[header] ?? ""));
-        if (seen.has(key)) continue;
-        seen.add(key);
-        rows.push(row);
-      }
-      return { headers, rows };
+      return dedupeRows({ headers, rows: normalizedRows }, dedupeMode, dedupeKeys);
+    }
+    case "deduplicate": {
+      const dedupeNode = node as Extract<AppNode, { type: "deduplicate" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const dedupeMode = dedupeNode.data.dedupeMode ?? "fullRow";
+      const dedupeKeys = dedupeNode.data.dedupeKeys ?? [];
+      return dedupeRows(input, dedupeMode, dedupeKeys);
+    }
+    case "limitSample": {
+      const limitNode = node as Extract<AppNode, { type: "limitSample" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const mode = limitNode.data.limitSampleMode ?? "first";
+      const rowCount = limitNode.data.rowCount ?? 0;
+      const randomSeed = limitNode.data.randomSeed ?? 0;
+      return applyLimitSample(input, { mode, rowCount, randomSeed });
+    }
+    case "unnestArray": {
+      const unnestNode = node as Extract<AppNode, { type: "unnestArray" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const column = unnestNode.data.column ?? "";
+      const primitiveOutputColumn = unnestNode.data.primitiveOutputColumn ?? "value";
+      return applyUnnestArrayColumn(input, { column, primitiveOutputColumn });
     }
     case "join": {
       const joinNode = node as Extract<AppNode, { type: "join" }>;

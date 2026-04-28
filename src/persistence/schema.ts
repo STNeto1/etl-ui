@@ -18,14 +18,17 @@ import {
   defaultConditionalData,
   defaultCsvSourceData,
   defaultDownloadData,
+  defaultDeduplicateData,
   defaultFillReplaceData,
   defaultFilterData,
   defaultJoinData,
+  defaultLimitSampleData,
   defaultMergeUnionData,
   defaultRenameColumnsData,
   defaultSelectColumnsData,
   defaultSortData,
   defaultSwitchData,
+  defaultUnnestArrayData,
   defaultVisualizationData,
 } from "../types/flow";
 
@@ -122,6 +125,10 @@ function sanitizeFilterOp(value: unknown): FilterOp | null {
 
 function sanitizeMergeMode(value: unknown): MergeUnionDedupeMode | null {
   return value === "fullRow" || value === "keyColumns" ? value : null;
+}
+
+function sanitizeLimitSampleMode(value: unknown): "first" | "random" | null {
+  return value === "first" || value === "random" ? value : null;
 }
 
 function sanitizeJoinKind(value: unknown): JoinKind | null {
@@ -276,6 +283,58 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
         dedupeEnabled: asBoolean(data.dedupeEnabled) ?? defaults.dedupeEnabled,
         dedupeMode: sanitizeMergeMode(data.dedupeMode) ?? defaults.dedupeMode,
         dedupeKeys: asStringArray(data.dedupeKeys),
+      },
+    };
+  }
+
+  if (type === "deduplicate") {
+    const defaults = defaultDeduplicateData();
+    return {
+      id,
+      type: "deduplicate",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        dedupeMode: sanitizeMergeMode(data.dedupeMode) ?? defaults.dedupeMode,
+        dedupeKeys: asStringArray(data.dedupeKeys),
+      },
+    };
+  }
+
+  if (type === "limitSample") {
+    const defaults = defaultLimitSampleData();
+    const rowCountRaw = asNumber(data.rowCount);
+    const seedRaw = asNumber(data.randomSeed);
+    const rowCount =
+      rowCountRaw != null && Number.isFinite(rowCountRaw)
+        ? Math.max(0, Math.floor(rowCountRaw))
+        : defaults.rowCount;
+    const randomSeed =
+      seedRaw != null && Number.isFinite(seedRaw) ? Math.trunc(seedRaw) : defaults.randomSeed;
+    return {
+      id,
+      type: "limitSample",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        limitSampleMode: sanitizeLimitSampleMode(data.limitSampleMode) ?? defaults.limitSampleMode,
+        rowCount,
+        randomSeed,
+      },
+    };
+  }
+
+  if (type === "unnestArray") {
+    const defaults = defaultUnnestArrayData();
+    return {
+      id,
+      type: "unnestArray",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        column: asString(data.column) ?? defaults.column,
+        primitiveOutputColumn:
+          asString(data.primitiveOutputColumn) ?? defaults.primitiveOutputColumn,
       },
     };
   }
