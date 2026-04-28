@@ -2,6 +2,7 @@ import type { Edge } from "@xyflow/react";
 import type { AppNode, FilterOp, MergeUnionDedupeMode } from "../types/flow";
 import {
   CSV_SOURCE_NODE_ID,
+  defaultConditionalData,
   defaultCsvSourceData,
   defaultDownloadData,
   defaultFilterData,
@@ -165,6 +166,33 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       data: {
         label: asString(data.label) ?? defaults.label,
         fileName: asString(data.fileName) ?? defaults.fileName,
+      },
+    };
+  }
+
+  if (type === "conditional") {
+    const defaults = defaultConditionalData();
+    const rules = Array.isArray(data.rules)
+      ? data.rules
+          .filter((rule): rule is Record<string, unknown> => isRecord(rule))
+          .map((rule) => {
+            const idValue = asString(rule.id);
+            const column = asString(rule.column);
+            const op = sanitizeFilterOp(rule.op);
+            const value = asString(rule.value);
+            if (idValue == null || column == null || op == null || value == null) return null;
+            return { id: idValue, column, op, value };
+          })
+          .filter((rule): rule is NonNullable<typeof rule> => rule != null)
+      : defaults.rules;
+    return {
+      id,
+      type: "conditional",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        combineAll: asBoolean(data.combineAll) ?? defaults.combineAll,
+        rules,
       },
     };
   }

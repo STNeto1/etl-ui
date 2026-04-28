@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutput } from "../graph/tabularOutput";
+import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import { csvPayloadToString, normalizeCsvFileName } from "../download/toCsv";
 import type { AppNode, DownloadNode as DownloadNodeType, DownloadNodeData } from "../types/flow";
 
@@ -10,7 +10,7 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
   const edges = useEdges();
 
   const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const upstream = incoming.length > 0 ? getTabularOutput(incoming[0].source, nodes, edges) : null;
+  const upstream = incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null;
   const safeFileName = normalizeCsvFileName(data.fileName ?? "export.csv");
 
   const patchData = useCallback(

@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
-import { getTabularOutput } from "../graph/tabularOutput";
+import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import type { AppNode, FilterNodeData, FilterNode as FilterNodeType } from "../types/flow";
 
 export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
@@ -15,8 +15,7 @@ export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
   const headers = useMemo(() => {
     const incoming = edges.filter((e) => e.target === id);
     if (incoming.length === 0) return [];
-    const parentId = incoming[0].source;
-    const payload = getTabularOutput(parentId, nodes, edges);
+    const payload = getTabularOutputForEdge(incoming[0], nodes, edges);
     return payload?.headers ?? [];
   }, [edges, id, nodes]);
 

@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutput } from "../graph/tabularOutput";
+import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import type { AppNode, MergeUnionNode as MergeUnionNodeType, MergeUnionNodeData } from "../types/flow";
 
 export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
@@ -14,7 +14,7 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
     () =>
       incoming.map((edge) => ({
         sourceId: edge.source,
-        payload: getTabularOutput(edge.source, nodes, edges),
+        payload: getTabularOutputForEdge(edge, nodes, edges),
       })),
     [edges, incoming, nodes],
   );

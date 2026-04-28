@@ -21,10 +21,12 @@ import { FilterNode } from "./nodes/FilterNode";
 import { MergeUnionNode } from "./nodes/MergeUnionNode";
 import { VisualizationNode } from "./nodes/VisualizationNode";
 import { DownloadNode } from "./nodes/DownloadNode";
+import { ConditionalNode } from "./nodes/ConditionalNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
   DND_PALETTE_MIME,
+  defaultConditionalData,
   defaultCsvSourceData,
   defaultDownloadData,
   defaultFilterData,
@@ -40,6 +42,7 @@ const nodeTypes = {
   mergeUnion: MergeUnionNode,
   visualization: VisualizationNode,
   download: DownloadNode,
+  conditional: ConditionalNode,
 };
 
 const initialNodes: AppNode[] = [
@@ -191,6 +194,16 @@ function FlowWorkspace() {
             type: "download",
             position,
             data: defaultDownloadData(),
+          },
+        ]);
+      } else if (nodeType === "conditional") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "conditional",
+            position,
+            data: defaultConditionalData(),
           },
         ]);
       }

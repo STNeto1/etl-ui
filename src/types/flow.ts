@@ -63,15 +63,31 @@ export type DownloadNodeData = {
 
 export type DownloadNode = Node<DownloadNodeData, "download">;
 
+export type ConditionalBranchHandle = "if" | "else";
+
+export type ConditionalNodeData = {
+  label: string;
+  combineAll: boolean;
+  rules: FilterRule[];
+};
+
+export type ConditionalNode = Node<ConditionalNodeData, "conditional">;
+
 export type AppNode =
   | CsvSourceNode
   | FilterNode
   | VisualizationNode
   | MergeUnionNode
-  | DownloadNode;
+  | DownloadNode
+  | ConditionalNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
-export type PaletteNodeType = "visualization" | "filter" | "mergeUnion" | "download";
+export type PaletteNodeType =
+  | "visualization"
+  | "filter"
+  | "mergeUnion"
+  | "download"
+  | "conditional";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -102,6 +118,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Download",
     description: "Export upstream output as CSV",
   },
+  {
+    type: "conditional",
+    label: "Conditional",
+    description: "Route rows to if/else branches by rule match",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -127,6 +148,12 @@ export const defaultDownloadData = (): DownloadNodeData => ({
   fileName: "export.csv",
 });
 
+export const defaultConditionalData = (): ConditionalNodeData => ({
+  label: "Conditional",
+  combineAll: true,
+  rules: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -140,6 +167,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "visualization" ||
     value === "filter" ||
     value === "mergeUnion" ||
-    value === "download"
+    value === "download" ||
+    value === "conditional"
   );
 }

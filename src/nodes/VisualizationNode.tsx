@@ -7,7 +7,7 @@ import {
   useReactFlow,
   type NodeProps,
 } from "@xyflow/react";
-import { getTabularOutput } from "../graph/tabularOutput";
+import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import type {
   AppNode,
   CsvPayload,
@@ -52,7 +52,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     }
     const parentId = incoming[0].source;
     const parent = nodes.find((n) => n.id === parentId);
-    const payload = getTabularOutput(parentId, nodes, edges);
+    const payload = getTabularOutputForEdge(incoming[0], nodes, edges);
     if (payload == null) {
       return { kind: "no-data" };
     }
@@ -61,7 +61,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     if (viaFilter && parent != null) {
       const intoFilter = edges.filter((e) => e.target === parent.id)[0];
       if (intoFilter != null) {
-        const before = getTabularOutput(intoFilter.source, nodes, edges);
+        const before = getTabularOutputForEdge(intoFilter, nodes, edges);
         rowsBeforeFilter = before?.rows.length ?? null;
       }
     }

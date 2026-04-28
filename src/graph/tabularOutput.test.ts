@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
 import type { AppNode, CsvPayload, MergeUnionNode } from "../types/flow";
-import { getTabularOutput } from "./tabularOutput";
+import { getTabularOutput, getTabularOutputForEdge } from "./tabularOutput";
+import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 
 function csvSourceNode(id: string, csv: CsvPayload): AppNode {
   return {
@@ -67,8 +68,21 @@ function downloadNode(id: string): AppNode {
   };
 }
 
-function edge(id: string, source: string, target: string): Edge {
-  return { id, source, target };
+function conditionalNode(id: string): AppNode {
+  return {
+    id,
+    type: "conditional",
+    position: { x: 300, y: 0 },
+    data: {
+      label: "Conditional",
+      combineAll: true,
+      rules: [{ id: "rule-1", column: "id", op: "eq", value: "1" }],
+    },
+  };
+}
+
+function edge(id: string, source: string, target: string, sourceHandle?: string): Edge {
+  return { id, source, target, sourceHandle };
 }
 
 describe("getTabularOutput mergeUnion", () => {
@@ -282,9 +296,84 @@ describe("getTabularOutput mergeUnion", () => {
 
     const downloadInputEdge = edges.find((e) => e.target === "download-1");
     const output =
-      downloadInputEdge == null ? null : getTabularOutput(downloadInputEdge.source, nodes, edges);
+      downloadInputEdge == null ? null : getTabularOutputForEdge(downloadInputEdge, nodes, edges);
     expect(output?.rows).toEqual([
       { id: "1", name: "Ada" },
+      { id: "3", name: "Max" },
+    ]);
+  });
+
+  it("routes matching rows to if branch", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+        ],
+      }),
+      conditionalNode("cond-1"),
+      visualizationNode("viz-if"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "cond-1"),
+      edge("e2", "cond-1", "viz-if", CONDITIONAL_IF_HANDLE),
+    ];
+
+    const output = getTabularOutput("viz-if", nodes, edges);
+    expect(output?.rows).toEqual([{ id: "1", name: "Ada" }]);
+  });
+
+  it("routes non-matching rows to else branch", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+          { id: "3", name: "Max" },
+        ],
+      }),
+      conditionalNode("cond-1"),
+      visualizationNode("viz-else"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "cond-1"),
+      edge("e2", "cond-1", "viz-else", CONDITIONAL_ELSE_HANDLE),
+    ];
+
+    const output = getTabularOutput("viz-else", nodes, edges);
+    expect(output?.rows).toEqual([
+      { id: "2", name: "Lin" },
+      { id: "3", name: "Max" },
+    ]);
+  });
+
+  it("supports merging if and else branches from one conditional node", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+          { id: "3", name: "Max" },
+        ],
+      }),
+      conditionalNode("cond-1"),
+      mergeNode("merge-1"),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "cond-1"),
+      edge("e2", "cond-1", "merge-1", CONDITIONAL_IF_HANDLE),
+      edge("e3", "cond-1", "merge-1", CONDITIONAL_ELSE_HANDLE),
+      edge("e4", "merge-1", "viz-1"),
+    ];
+
+    const output = getTabularOutput("viz-1", nodes, edges);
+    expect(output?.rows).toEqual([
+      { id: "1", name: "Ada" },
+      { id: "2", name: "Lin" },
       { id: "3", name: "Max" },
     ]);
   });
