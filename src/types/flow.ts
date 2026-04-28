@@ -56,6 +56,21 @@ export type MergeUnionNodeData = {
 
 export type MergeUnionNode = Node<MergeUnionNodeData, "mergeUnion">;
 
+export type JoinKind = "inner" | "left";
+
+export type JoinKeyPair = {
+  leftColumn: string;
+  rightColumn: string;
+};
+
+export type JoinNodeData = {
+  label: string;
+  joinKind: JoinKind;
+  keyPairs: JoinKeyPair[];
+};
+
+export type JoinNode = Node<JoinNodeData, "join">;
+
 export type DownloadNodeData = {
   label: string;
   fileName: string;
@@ -145,6 +160,7 @@ export type AppNode =
   | FilterNode
   | VisualizationNode
   | MergeUnionNode
+  | JoinNode
   | DownloadNode
   | ConditionalNode
   | SelectColumnsNode
@@ -158,6 +174,7 @@ export type PaletteNodeType =
   | "visualization"
   | "filter"
   | "mergeUnion"
+  | "join"
   | "download"
   | "conditional"
   | "selectColumns"
@@ -184,6 +201,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     type: "mergeUnion",
     label: "Merge / Union",
     description: "Append multiple upstream paths into one table",
+  },
+  {
+    type: "join",
+    label: "Join",
+    description: "Combine two inputs on key columns (inner or left join)",
   },
   {
     type: "visualization",
@@ -245,6 +267,12 @@ export const defaultMergeUnionData = (): MergeUnionNodeData => ({
   dedupeKeys: [],
 });
 
+export const defaultJoinData = (): JoinNodeData => ({
+  label: "Join",
+  joinKind: "inner",
+  keyPairs: [],
+});
+
 export const defaultDownloadData = (): DownloadNodeData => ({
   label: "Download",
   fileName: "export.csv",
@@ -295,6 +323,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "visualization" ||
     value === "filter" ||
     value === "mergeUnion" ||
+    value === "join" ||
     value === "download" ||
     value === "conditional" ||
     value === "selectColumns" ||

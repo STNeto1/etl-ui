@@ -1,5 +1,12 @@
 import type { Edge } from "@xyflow/react";
-import type { AggregateMetricOp, AppNode, FilterOp, MergeUnionDedupeMode, SortDirection } from "../types/flow";
+import type {
+  AggregateMetricOp,
+  AppNode,
+  FilterOp,
+  JoinKind,
+  MergeUnionDedupeMode,
+  SortDirection,
+} from "../types/flow";
 import {
   CSV_SOURCE_NODE_ID,
   defaultAggregateData,
@@ -8,6 +15,7 @@ import {
   defaultCsvSourceData,
   defaultDownloadData,
   defaultFilterData,
+  defaultJoinData,
   defaultMergeUnionData,
   defaultSelectColumnsData,
   defaultSortData,
@@ -76,6 +84,10 @@ function sanitizeFilterOp(value: unknown): FilterOp | null {
 
 function sanitizeMergeMode(value: unknown): MergeUnionDedupeMode | null {
   return value === "fullRow" || value === "keyColumns" ? value : null;
+}
+
+function sanitizeJoinKind(value: unknown): JoinKind | null {
+  return value === "inner" || value === "left" ? value : null;
 }
 
 function sanitizeSortDirection(value: unknown): SortDirection | null {
@@ -169,6 +181,31 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
         dedupeEnabled: asBoolean(data.dedupeEnabled) ?? defaults.dedupeEnabled,
         dedupeMode: sanitizeMergeMode(data.dedupeMode) ?? defaults.dedupeMode,
         dedupeKeys: asStringArray(data.dedupeKeys),
+      },
+    };
+  }
+
+  if (type === "join") {
+    const defaults = defaultJoinData();
+    const keyPairs = Array.isArray(data.keyPairs)
+      ? data.keyPairs
+          .filter((pair): pair is Record<string, unknown> => isRecord(pair))
+          .map((pair) => {
+            const leftColumn = asString(pair.leftColumn);
+            const rightColumn = asString(pair.rightColumn);
+            if (leftColumn == null || rightColumn == null) return null;
+            return { leftColumn, rightColumn };
+          })
+          .filter((pair): pair is NonNullable<typeof pair> => pair != null)
+      : defaults.keyPairs;
+    return {
+      id,
+      type: "join",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        joinKind: sanitizeJoinKind(data.joinKind) ?? defaults.joinKind,
+        keyPairs,
       },
     };
   }

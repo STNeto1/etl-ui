@@ -4,6 +4,8 @@ import { applyComputeRow } from "../computeColumn/template";
 import type { AppNode, CsvPayload } from "../types/flow";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
+import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
+import { runJoin } from "../join/runJoin";
 import { parseSwitchSourceHandle } from "../switch/branches";
 
 function visitKey(nodeId: string, branch: string | null): string {
@@ -285,6 +287,22 @@ function resolveNodeOutput(
         rows.push(row);
       }
       return { headers, rows };
+    }
+    case "join": {
+      const joinNode = node as Extract<AppNode, { type: "join" }>;
+      const leftEdge = edges.find(
+        (e) => e.target === nodeId && e.targetHandle === JOIN_LEFT_TARGET,
+      );
+      const rightEdge = edges.find(
+        (e) => e.target === nodeId && e.targetHandle === JOIN_RIGHT_TARGET,
+      );
+      if (leftEdge == null || rightEdge == null) return null;
+      const leftPayload = getTabularOutputForEdge(leftEdge, nodes, edges, new Set(visited));
+      const rightPayload = getTabularOutputForEdge(rightEdge, nodes, edges, new Set(visited));
+      if (leftPayload == null || rightPayload == null) return null;
+      const keyPairs = joinNode.data.keyPairs ?? [];
+      const joinKind = joinNode.data.joinKind ?? "inner";
+      return runJoin(leftPayload, rightPayload, keyPairs, joinKind);
     }
     case "download":
       return null;

@@ -5,11 +5,13 @@ import type {
   AppNode,
   ComputeColumnDef,
   CsvPayload,
+  JoinNode,
   MergeUnionNode,
   SwitchBranch,
 } from "../types/flow";
 import { getTabularOutput, getTabularOutputForEdge } from "./tabularOutput";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
+import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
 
 function csvSourceNode(id: string, csv: CsvPayload): AppNode {
@@ -40,6 +42,20 @@ function mergeNode(
       dedupeEnabled: false,
       dedupeMode: "fullRow",
       dedupeKeys: [],
+      ...overrides,
+    },
+  };
+}
+
+function joinNode(id: string, overrides?: Partial<JoinNode["data"]>): AppNode {
+  return {
+    id,
+    type: "join",
+    position: { x: 200, y: 0 },
+    data: {
+      label: "Join",
+      joinKind: "inner",
+      keyPairs: [],
       ...overrides,
     },
   };
@@ -150,8 +166,14 @@ function aggregateNode(id: string, groupKeys: string[], metrics: AggregateMetric
   };
 }
 
-function edge(id: string, source: string, target: string, sourceHandle?: string): Edge {
-  return { id, source, target, sourceHandle };
+function edge(
+  id: string,
+  source: string,
+  target: string,
+  sourceHandle?: string,
+  targetHandle?: string,
+): Edge {
+  return { id, source, target, sourceHandle, targetHandle };
 }
 
 describe("getTabularOutput mergeUnion", () => {
@@ -940,6 +962,198 @@ describe("getTabularOutput aggregate", () => {
     expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
       { k: "a", n: "2", s: "3" },
       { k: "b", n: "1", s: "4" },
+    ]);
+  });
+});
+
+describe("getTabularOutput join", () => {
+  it("inner join matches on key and merges columns with disambiguation", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", {
+        headers: ["id", "name"],
+        rows: [{ id: "1", name: "Ada" }],
+      }),
+      csvSourceNode("src-R", {
+        headers: ["id", "name"],
+        rows: [{ id: "1", name: "Bea" }],
+      }),
+      joinNode("join-1", {
+        joinKind: "inner",
+        keyPairs: [{ leftColumn: "id", rightColumn: "id" }],
+      }),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+    ];
+
+    expect(getTabularOutput("join-1", nodes, edges)).toEqual({
+      headers: ["id", "name", "id__right", "name__right"],
+      rows: [{ id: "1", name: "Ada", id__right: "1", name__right: "Bea" }],
+    });
+  });
+
+  it("inner join yields no rows when no key match", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", {
+        headers: ["id"],
+        rows: [{ id: "1" }],
+      }),
+      csvSourceNode("src-R", {
+        headers: ["id"],
+        rows: [{ id: "2" }],
+      }),
+      joinNode("join-1", { keyPairs: [{ leftColumn: "id", rightColumn: "id" }] }),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+    ];
+
+    expect(getTabularOutput("join-1", nodes, edges)).toEqual({
+      headers: ["id", "id__right"],
+      rows: [],
+    });
+  });
+
+  it("left join keeps unmatched left rows with empty right-side cells", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", {
+        headers: ["id", "side"],
+        rows: [
+          { id: "1", side: "L" },
+          { id: "2", side: "L" },
+        ],
+      }),
+      csvSourceNode("src-R", {
+        headers: ["id", "extra"],
+        rows: [{ id: "1", extra: "x" }],
+      }),
+      joinNode("join-1", {
+        joinKind: "left",
+        keyPairs: [{ leftColumn: "id", rightColumn: "id" }],
+      }),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+    ];
+
+    expect(getTabularOutput("join-1", nodes, edges)).toEqual({
+      headers: ["id", "side", "id__right", "extra"],
+      rows: [
+        { id: "1", side: "L", id__right: "1", extra: "x" },
+        { id: "2", side: "L", id__right: "", extra: "" },
+      ],
+    });
+  });
+
+  it("matches on composite key pairs", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", {
+        headers: ["a", "b", "v"],
+        rows: [
+          { a: "1", b: "2", v: "ok" },
+          { a: "1", b: "9", v: "skip" },
+        ],
+      }),
+      csvSourceNode("src-R", {
+        headers: ["x", "y", "w"],
+        rows: [{ x: "1", y: "2", w: "R" }],
+      }),
+      joinNode("join-1", {
+        keyPairs: [
+          { leftColumn: "a", rightColumn: "x" },
+          { leftColumn: "b", rightColumn: "y" },
+        ],
+      }),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+    ];
+
+    expect(getTabularOutput("join-1", nodes, edges)?.rows).toEqual([
+      { a: "1", b: "2", v: "ok", x: "1", y: "2", w: "R" },
+    ]);
+  });
+
+  it("produces cartesian rows for duplicate keys on both sides (inner)", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", {
+        headers: ["k"],
+        rows: [{ k: "1" }, { k: "1" }],
+      }),
+      csvSourceNode("src-R", {
+        headers: ["k"],
+        rows: [{ k: "1" }, { k: "1" }],
+      }),
+      joinNode("join-1", { keyPairs: [{ leftColumn: "k", rightColumn: "k" }] }),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+    ];
+
+    expect(getTabularOutput("join-1", nodes, edges)?.rows).toHaveLength(4);
+  });
+
+  it("returns null when join inputs lack distinct target handles", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
+      csvSourceNode("src-R", { headers: ["id"], rows: [{ id: "1" }] }),
+      joinNode("join-1", { keyPairs: [{ leftColumn: "id", rightColumn: "id" }] }),
+    ];
+    const edges = [edge("eL", "src-L", "join-1"), edge("eR", "src-R", "join-1")];
+
+    expect(getTabularOutput("join-1", nodes, edges)).toBeNull();
+  });
+
+  it("returns null when only one side is connected with correct handle", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
+      joinNode("join-1", { keyPairs: [{ leftColumn: "id", rightColumn: "id" }] }),
+    ];
+    const edges = [edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET)];
+
+    expect(getTabularOutput("join-1", nodes, edges)).toBeNull();
+  });
+
+  it("returns null when key pairs are empty", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
+      csvSourceNode("src-R", { headers: ["id"], rows: [{ id: "1" }] }),
+      joinNode("join-1", { keyPairs: [] }),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+    ];
+
+    expect(getTabularOutput("join-1", nodes, edges)).toBeNull();
+  });
+
+  it("supports CSV -> Join -> Visualization", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-L", {
+        headers: ["id", "a"],
+        rows: [{ id: "1", a: "L" }],
+      }),
+      csvSourceNode("src-R", {
+        headers: ["id", "b"],
+        rows: [{ id: "1", b: "R" }],
+      }),
+      joinNode("join-1", { keyPairs: [{ leftColumn: "id", rightColumn: "id" }] }),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [
+      edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET),
+      edge("eR", "src-R", "join-1", undefined, JOIN_RIGHT_TARGET),
+      edge("e3", "join-1", "viz-1"),
+    ];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
+      { id: "1", a: "L", id__right: "1", b: "R" },
     ]);
   });
 });

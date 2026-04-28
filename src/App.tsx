@@ -18,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
 import { CsvSourceNode } from "./nodes/CsvSourceNode";
 import { FilterNode } from "./nodes/FilterNode";
+import { JoinNode } from "./nodes/JoinNode";
 import { MergeUnionNode } from "./nodes/MergeUnionNode";
 import { VisualizationNode } from "./nodes/VisualizationNode";
 import { DownloadNode } from "./nodes/DownloadNode";
@@ -35,6 +36,7 @@ import {
   defaultCsvSourceData,
   defaultDownloadData,
   defaultFilterData,
+  defaultJoinData,
   defaultMergeUnionData,
   defaultSelectColumnsData,
   defaultSortData,
@@ -50,6 +52,7 @@ const nodeTypes = {
   csvSource: CsvSourceNode,
   filter: FilterNode,
   mergeUnion: MergeUnionNode,
+  join: JoinNode,
   visualization: VisualizationNode,
   download: DownloadNode,
   conditional: ConditionalNode,
@@ -189,6 +192,16 @@ function FlowWorkspace() {
             type: "mergeUnion",
             position,
             data: defaultMergeUnionData(),
+          },
+        ]);
+      } else if (nodeType === "join") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "join",
+            position,
+            data: defaultJoinData(),
           },
         ]);
       } else if (nodeType === "visualization") {
