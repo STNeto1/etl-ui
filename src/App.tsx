@@ -17,18 +17,21 @@ import {
 import "@xyflow/react/dist/style.css";
 import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
 import { CsvSourceNode } from "./nodes/CsvSourceNode";
+import { FilterNode } from "./nodes/FilterNode";
 import { VisualizationNode } from "./nodes/VisualizationNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
   DND_PALETTE_MIME,
   defaultCsvSourceData,
+  defaultFilterData,
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
 
 const nodeTypes = {
   csvSource: CsvSourceNode,
+  filter: FilterNode,
   visualization: VisualizationNode,
 };
 
@@ -117,7 +120,17 @@ function FlowWorkspace() {
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const id = crypto.randomUUID();
 
-      if (nodeType === "visualization") {
+      if (nodeType === "filter") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "filter",
+            position,
+            data: defaultFilterData(),
+          },
+        ]);
+      } else if (nodeType === "visualization") {
         setNodes((nds) => [
           ...nds,
           {

@@ -20,16 +20,34 @@ export type CsvSourceData = {
 
 export type CsvSourceNode = Node<CsvSourceData, "csvSource">;
 
+export type FilterOp = "eq" | "ne" | "contains" | "startsWith" | "gt" | "lt";
+
+export type FilterRule = {
+  id: string;
+  column: string;
+  op: FilterOp;
+  value: string;
+};
+
+export type FilterNodeData = {
+  label: string;
+  /** When true, every rule must match (AND). When false, any rule may match (OR). */
+  combineAll: boolean;
+  rules: FilterRule[];
+};
+
+export type FilterNode = Node<FilterNodeData, "filter">;
+
 export type VisualizationNodeData = {
   label: string;
 };
 
 export type VisualizationNode = Node<VisualizationNodeData, "visualization">;
 
-export type AppNode = CsvSourceNode | VisualizationNode;
+export type AppNode = CsvSourceNode | FilterNode | VisualizationNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
-export type PaletteNodeType = "visualization";
+export type PaletteNodeType = "visualization" | "filter";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -41,11 +59,22 @@ export const DND_PALETTE_MIME = "application/reactflow" as const;
 
 export const PALETTE_ITEMS: PaletteItem[] = [
   {
+    type: "filter",
+    label: "Filter",
+    description: "Rules on columns from a connected CSV source",
+  },
+  {
     type: "visualization",
     label: "Visualization",
-    description: "Table preview from a CSV source",
+    description: "Debug table preview (CSV or filtered upstream)",
   },
 ];
+
+export const defaultFilterData = (): FilterNodeData => ({
+  label: "Filter",
+  combineAll: true,
+  rules: [],
+});
 
 export const defaultVisualizationData = (): VisualizationNodeData => ({
   label: "Visualization",
@@ -60,5 +89,5 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
 });
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
-  return value === "visualization";
+  return value === "visualization" || value === "filter";
 }
