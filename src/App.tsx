@@ -407,6 +407,9 @@ function FlowWorkspace() {
               const snap = getDemoWorkspaceSnapshot();
               setNodes(snap.nodes);
               setEdges(snap.edges);
+              queueMicrotask(() => {
+                fitView({ duration: 200 });
+              });
             }}
             resetSourceToo={resetSourceToo}
             onResetSourceTooChange={setResetSourceToo}

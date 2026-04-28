@@ -6,9 +6,10 @@ import {
   defaultFilterData,
   defaultVisualizationData,
 } from "../types/flow";
+import { DEMO_TEMPLATE_CSV } from "./demoSeedCsv";
 
 /**
- * A small starter graph: CSV source (example HTTP URL) → filter → visualization.
+ * A small starter graph: CSV source (pre-loaded template data) → filter → visualization.
  * Replaces the entire node/edge list except the fixed CSV source id.
  */
 export function getDemoWorkspaceSnapshot(): { nodes: AppNode[]; edges: Edge[] } {
@@ -22,20 +23,23 @@ export function getDemoWorkspaceSnapshot(): { nodes: AppNode[]; edges: Edge[] } 
         position: { x: 40, y: 80 },
         data: {
           ...defaultCsvSourceData(),
-          httpUrl: "https://jsonplaceholder.typicode.com/users",
-          httpJsonArrayPath: "",
+          csv: DEMO_TEMPLATE_CSV,
+          source: "template",
+          fileName: "template.csv",
+          error: null,
+          loadedAt: Date.now(),
         },
       },
       {
         id: filterId,
         type: "filter",
-        position: { x: 380, y: 80 },
+        position: { x: 520, y: 80 },
         data: { ...defaultFilterData(), label: "Demo filter" },
       },
       {
         id: vizId,
         type: "visualization",
-        position: { x: 720, y: 80 },
+        position: { x: 1000, y: 80 },
         data: { ...defaultVisualizationData(), label: "Demo preview", previewRows: 8 },
       },
     ],
