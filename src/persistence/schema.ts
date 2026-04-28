@@ -2,6 +2,7 @@ import type { Edge } from "@xyflow/react";
 import type {
   AggregateMetricOp,
   AppNode,
+  CsvSourceData,
   FilterOp,
   JoinKind,
   MergeUnionDedupeMode,
@@ -68,6 +69,22 @@ function sanitizeCsvPayload(value: unknown): { headers: string[]; rows: Record<s
   return { headers, rows };
 }
 
+function sanitizeHttpKvList(value: unknown): { id: string; key: string; value: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((row): row is Record<string, unknown> => isRecord(row))
+    .map((row) => {
+      const rowId = asString(row.id);
+      if (rowId == null) return null;
+      return {
+        id: rowId,
+        key: asString(row.key) ?? "",
+        value: asString(row.value) ?? "",
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
+}
+
 function sanitizeFilterOp(value: unknown): FilterOp | null {
   switch (value) {
     case "eq":
@@ -114,16 +131,22 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
   if (type === "csvSource") {
     const defaults = defaultCsvSourceData();
     const csv = sanitizeCsvPayload(data.csv);
+    const sourceRaw = data.source;
+    const source =
+      sourceRaw === "file" || sourceRaw === "template" || sourceRaw === "http" ? sourceRaw : defaults.source;
     return {
       id,
       type: "csvSource",
       position: { x, y },
       data: {
         csv: csv ?? defaults.csv,
-        source: data.source === "file" || data.source === "template" ? data.source : defaults.source,
+        source,
         fileName: asString(data.fileName),
         error: asString(data.error),
         loadedAt: asNumber(data.loadedAt),
+        httpUrl: asString(data.httpUrl) ?? defaults.httpUrl,
+        httpParams: sanitizeHttpKvList(data.httpParams),
+        httpHeaders: sanitizeHttpKvList(data.httpHeaders),
       },
     };
   }
@@ -430,6 +453,47 @@ export function serializeWorkspaceSnapshot(nodes: AppNode[], edges: Edge[]): Wor
   };
 }
 
+/** First legacy `httpFetch` palette node merged into fixed CSV source on load (node type removed). */
+function extractLegacyHttpFetchIntoCsvSource(rawNodes: unknown[]): Partial<CsvSourceData> | null {
+  for (const raw of rawNodes) {
+    if (!isRecord(raw) || asString(raw.type) !== "httpFetch") continue;
+    const d = isRecord(raw.data) ? raw.data : {};
+    const httpUrl = asString(d.url) ?? "";
+    const httpParams = sanitizeHttpKvList(d.params);
+    const httpHeaders = sanitizeHttpKvList(d.headers);
+    const csv = sanitizeCsvPayload(d.csv);
+    const err = asString(d.error);
+    const loadedAt = asNumber(d.fetchedAt);
+    let fileName: string | null = null;
+    if (httpUrl.trim().length > 0) {
+      try {
+        fileName = new URL(httpUrl.trim()).host;
+      } catch {
+        fileName = "HTTP";
+      }
+    }
+    if (csv != null) {
+      return {
+        httpUrl,
+        httpParams,
+        httpHeaders,
+        csv,
+        source: "http",
+        fileName,
+        error: null,
+        loadedAt: loadedAt ?? Date.now(),
+      };
+    }
+    return {
+      httpUrl,
+      httpParams,
+      httpHeaders,
+      ...(err != null ? { error: err } : {}),
+    };
+  }
+  return null;
+}
+
 export function deserializeWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
   if (!isRecord(raw)) return null;
   if (raw.version !== WORKSPACE_SCHEMA_VERSION) return null;
@@ -438,14 +502,25 @@ export function deserializeWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | 
   const rawEdges = Array.isArray(raw.edges) ? raw.edges : null;
   if (rawNodes == null || rawEdges == null) return null;
 
+  const legacyHttp = extractLegacyHttpFetchIntoCsvSource(rawNodes);
+
   const nodes = ensureRequiredCsvSource(
     rawNodes
       .map((node) => sanitizeNode(node))
       .filter((node): node is AppNode => node != null),
-  );
+  ).map((node) => {
+    if (legacyHttp == null) return node;
+    if (node.id === CSV_SOURCE_NODE_ID && node.type === "csvSource") {
+      return { ...node, data: { ...node.data, ...legacyHttp } };
+    }
+    return node;
+  });
+
+  const nodeIds = new Set(nodes.map((n) => n.id));
   const edges = rawEdges
     .map((edge) => sanitizeEdge(edge))
-    .filter((edge): edge is Edge => edge != null);
+    .filter((edge): edge is Edge => edge != null)
+    .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
 
   return {
     version: WORKSPACE_SCHEMA_VERSION,

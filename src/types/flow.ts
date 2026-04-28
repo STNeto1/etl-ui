@@ -8,7 +8,7 @@ export type CsvPayload = {
   rows: Record<string, string>[];
 };
 
-export type CsvSourceKind = "file" | "template";
+export type CsvSourceKind = "file" | "template" | "http";
 
 export type CsvSourceData = {
   csv: CsvPayload | null;
@@ -16,9 +16,20 @@ export type CsvSourceData = {
   fileName: string | null;
   error: string | null;
   loadedAt: number | null;
+  /** GET URL (absolute) for remote CSV/JSON; used when loading via URL tab. */
+  httpUrl: string;
+  httpParams: HttpFetchKv[];
+  httpHeaders: HttpFetchKv[];
 };
 
 export type CsvSourceNode = Node<CsvSourceData, "csvSource">;
+
+/** Key/value row for CSV source HTTP query params or headers. */
+export type HttpFetchKv = {
+  id: string;
+  key: string;
+  value: string;
+};
 
 export type FilterOp = "eq" | "ne" | "contains" | "startsWith" | "gt" | "lt";
 
@@ -316,6 +327,9 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
   fileName: null,
   error: null,
   loadedAt: null,
+  httpUrl: "",
+  httpParams: [],
+  httpHeaders: [],
 });
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {

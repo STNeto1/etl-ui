@@ -25,6 +25,9 @@ function csvSourceNode(id: string, csv: CsvPayload): AppNode {
       fileName: null,
       error: null,
       loadedAt: Date.now(),
+      httpUrl: "",
+      httpParams: [],
+      httpHeaders: [],
     },
   };
 }
@@ -1155,5 +1158,29 @@ describe("getTabularOutput join", () => {
     expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
       { id: "1", a: "L", id__right: "1", b: "R" },
     ]);
+  });
+});
+
+describe("getTabularOutput csvSource http", () => {
+  it("returns data loaded from HTTP source fields on csv source", () => {
+    const payload: CsvPayload = { headers: ["a"], rows: [{ a: "1" }] };
+    const nodes: AppNode[] = [
+      {
+        id: "csv-remote",
+        type: "csvSource",
+        position: { x: 0, y: 0 },
+        data: {
+          csv: payload,
+          source: "http",
+          fileName: "api.example.com",
+          error: null,
+          loadedAt: Date.now(),
+          httpUrl: "https://api.example.com/data",
+          httpParams: [],
+          httpHeaders: [],
+        },
+      },
+    ];
+    expect(getTabularOutput("csv-remote", nodes, [])).toEqual(payload);
   });
 });

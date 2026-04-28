@@ -44,6 +44,9 @@ describe("workspaceStore", () => {
           fileName: "template.csv",
           error: null,
           loadedAt: 123,
+          httpUrl: "",
+          httpParams: [],
+          httpHeaders: [],
         },
       },
       {
