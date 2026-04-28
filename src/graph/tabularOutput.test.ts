@@ -117,6 +117,57 @@ function selectColumnsNode(id: string, selectedColumns: string[]): AppNode {
   };
 }
 
+function renameColumnsNode(
+  id: string,
+  renames: Array<{ id: string; fromColumn: string; toColumn: string }>,
+): AppNode {
+  return {
+    id,
+    type: "renameColumns",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Rename Columns",
+      renames,
+    },
+  };
+}
+
+function castColumnsNode(
+  id: string,
+  casts: Array<{
+    id: string;
+    column: string;
+    target: "string" | "integer" | "number" | "boolean" | "date";
+  }>,
+): AppNode {
+  return {
+    id,
+    type: "castColumns",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Cast",
+      casts,
+    },
+  };
+}
+
+function fillReplaceNode(
+  id: string,
+  fills: Array<{ id: string; column: string; fillValue: string }>,
+  replacements: Array<{ id: string; column: string | null; from: string; to: string }>,
+): AppNode {
+  return {
+    id,
+    type: "fillReplace",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Fill / Replace",
+      fills,
+      replacements,
+    },
+  };
+}
+
 function sortNode(id: string, keys: Array<{ column: string; direction: "asc" | "desc" }>): AppNode {
   return {
     id,
@@ -1197,6 +1248,133 @@ describe("getTabularOutput csvSource http", () => {
     expect(getTabularOutput("csv-rn", nodes, [])).toEqual({
       headers: ["new"],
       rows: [{ new: "v" }],
+    });
+  });
+});
+
+describe("getTabularOutput renameColumns", () => {
+  it("renames a single column like csv source http renames", () => {
+    const payload: CsvPayload = {
+      headers: ["id", "name"],
+      rows: [{ id: "1", name: "Ada" }],
+    };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", payload),
+      renameColumnsNode("rn-1", [{ id: "r1", fromColumn: "name", toColumn: "full_name" }]),
+    ];
+    const edges = [edge("e1", "src-1", "rn-1")];
+    expect(getTabularOutput("rn-1", nodes, edges)).toEqual({
+      headers: ["id", "full_name"],
+      rows: [{ id: "1", full_name: "Ada" }],
+    });
+  });
+
+  it("chains two renames when the second from matches the first result", () => {
+    const payload: CsvPayload = {
+      headers: ["a", "b"],
+      rows: [{ a: "1", b: "2" }],
+    };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", payload),
+      renameColumnsNode("rn-1", [
+        { id: "1", fromColumn: "a", toColumn: "x" },
+        { id: "2", fromColumn: "x", toColumn: "z" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "rn-1")];
+    expect(getTabularOutput("rn-1", nodes, edges)).toEqual({
+      headers: ["z", "b"],
+      rows: [{ z: "1", b: "2" }],
+    });
+  });
+});
+
+describe("getTabularOutput castColumns", () => {
+  it("truncates to integer and normalizes number", () => {
+    const payload: CsvPayload = {
+      headers: ["n", "f"],
+      rows: [
+        { n: " 3.7 ", f: "1e2" },
+        { n: "x", f: "bad" },
+      ],
+    };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", payload),
+      castColumnsNode("c-1", [
+        { id: "1", column: "n", target: "integer" },
+        { id: "2", column: "f", target: "number" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "c-1")];
+    expect(getTabularOutput("c-1", nodes, edges)).toEqual({
+      headers: ["n", "f"],
+      rows: [
+        { n: "3", f: "100" },
+        { n: "", f: "" },
+      ],
+    });
+  });
+
+  it("casts boolean and date to canonical strings", () => {
+    const payload: CsvPayload = {
+      headers: ["b", "d"],
+      rows: [{ b: "YES", d: "2024-06-01T00:00:00Z" }],
+    };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", payload),
+      castColumnsNode("c-1", [
+        { id: "1", column: "b", target: "boolean" },
+        { id: "2", column: "d", target: "date" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "c-1")];
+    expect(getTabularOutput("c-1", nodes, edges)?.rows[0]).toEqual({
+      b: "true",
+      d: "2024-06-01",
+    });
+  });
+});
+
+describe("getTabularOutput fillReplace", () => {
+  it("fills trimmed-empty cells then applies whole-cell replace", () => {
+    const payload: CsvPayload = {
+      headers: ["id", "region"],
+      rows: [
+        { id: "", region: "North" },
+        { id: "2", region: "South" },
+      ],
+    };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", payload),
+      fillReplaceNode(
+        "fr-1",
+        [{ id: "f1", column: "id", fillValue: "0" }],
+        [{ id: "r1", column: "region", from: "South", to: "S" }],
+      ),
+    ];
+    const edges = [edge("e1", "src-1", "fr-1")];
+    expect(getTabularOutput("fr-1", nodes, edges)).toEqual({
+      headers: ["id", "region"],
+      rows: [
+        { id: "0", region: "North" },
+        { id: "2", region: "S" },
+      ],
+    });
+  });
+
+  it("replaces across all columns when column is null", () => {
+    const payload: CsvPayload = {
+      headers: ["a", "b"],
+      rows: [{ a: "x", b: "x" }],
+    };
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", payload),
+      fillReplaceNode("fr-1", [], [{ id: "r1", column: null, from: "x", to: "y" }]),
+    ];
+    const edges = [edge("e1", "src-1", "fr-1")];
+    expect(getTabularOutput("fr-1", nodes, edges)).toEqual({
+      headers: ["a", "b"],
+      rows: [{ a: "y", b: "y" }],
     });
   });
 });

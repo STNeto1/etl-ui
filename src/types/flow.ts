@@ -132,6 +132,51 @@ export type SelectColumnsNodeData = {
 
 export type SelectColumnsNode = Node<SelectColumnsNodeData, "selectColumns">;
 
+export type RenameColumnsNodeData = {
+  label: string;
+  /** Same shape as HTTP column renames; applied in order when data leaves this node. */
+  renames: HttpColumnRename[];
+};
+
+export type RenameColumnsNode = Node<RenameColumnsNodeData, "renameColumns">;
+
+export type CastTarget = "string" | "integer" | "number" | "boolean" | "date";
+
+export type CastColumnRule = {
+  id: string;
+  column: string;
+  target: CastTarget;
+};
+
+export type CastColumnsNodeData = {
+  label: string;
+  casts: CastColumnRule[];
+};
+
+export type CastColumnsNode = Node<CastColumnsNodeData, "castColumns">;
+
+export type FillReplaceFillRule = {
+  id: string;
+  column: string;
+  fillValue: string;
+};
+
+export type FillReplaceReplaceRule = {
+  id: string;
+  /** When null, apply replacement to every column. */
+  column: string | null;
+  from: string;
+  to: string;
+};
+
+export type FillReplaceNodeData = {
+  label: string;
+  fills: FillReplaceFillRule[];
+  replacements: FillReplaceReplaceRule[];
+};
+
+export type FillReplaceNode = Node<FillReplaceNodeData, "fillReplace">;
+
 export type SortDirection = "asc" | "desc";
 
 export type SortKey = {
@@ -204,7 +249,10 @@ export type AppNode =
   | SortNode
   | SwitchNode
   | ComputeColumnNode
-  | AggregateNode;
+  | AggregateNode
+  | RenameColumnsNode
+  | CastColumnsNode
+  | FillReplaceNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -218,7 +266,10 @@ export type PaletteNodeType =
   | "sort"
   | "switch"
   | "computeColumn"
-  | "aggregate";
+  | "aggregate"
+  | "renameColumns"
+  | "castColumns"
+  | "fillReplace";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -263,6 +314,21 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     type: "selectColumns",
     label: "Select Columns",
     description: "Keep only selected upstream columns",
+  },
+  {
+    type: "renameColumns",
+    label: "Rename Columns",
+    description: "Rename headers (all columns kept; unlike Select which drops columns)",
+  },
+  {
+    type: "castColumns",
+    label: "Cast",
+    description: "Convert cell values to integer, number, boolean, date (ISO), or string",
+  },
+  {
+    type: "fillReplace",
+    label: "Fill / Replace",
+    description: "Fill empty cells or replace whole-cell values (trimmed match)",
   },
   {
     type: "sort",
@@ -326,6 +392,22 @@ export const defaultSelectColumnsData = (): SelectColumnsNodeData => ({
   selectedColumns: [],
 });
 
+export const defaultRenameColumnsData = (): RenameColumnsNodeData => ({
+  label: "Rename Columns",
+  renames: [],
+});
+
+export const defaultCastColumnsData = (): CastColumnsNodeData => ({
+  label: "Cast",
+  casts: [],
+});
+
+export const defaultFillReplaceData = (): FillReplaceNodeData => ({
+  label: "Fill / Replace",
+  fills: [],
+  replacements: [],
+});
+
 export const defaultSortData = (): SortNodeData => ({
   label: "Sort",
   keys: [],
@@ -379,6 +461,9 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "sort" ||
     value === "switch" ||
     value === "computeColumn" ||
-    value === "aggregate"
+    value === "aggregate" ||
+    value === "renameColumns" ||
+    value === "castColumns" ||
+    value === "fillReplace"
   );
 }

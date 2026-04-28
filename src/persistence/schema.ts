@@ -2,6 +2,7 @@ import type { Edge } from "@xyflow/react";
 import type {
   AggregateMetricOp,
   AppNode,
+  CastTarget,
   CsvSourceData,
   FilterOp,
   HttpColumnRename,
@@ -12,13 +13,16 @@ import type {
 import {
   CSV_SOURCE_NODE_ID,
   defaultAggregateData,
+  defaultCastColumnsData,
   defaultComputeColumnData,
   defaultConditionalData,
   defaultCsvSourceData,
   defaultDownloadData,
+  defaultFillReplaceData,
   defaultFilterData,
   defaultJoinData,
   defaultMergeUnionData,
+  defaultRenameColumnsData,
   defaultSelectColumnsData,
   defaultSortData,
   defaultSwitchData,
@@ -130,6 +134,19 @@ function sanitizeSortDirection(value: unknown): SortDirection | null {
 
 function sanitizeAggregateOp(value: unknown): AggregateMetricOp | null {
   if (value === "count" || value === "sum" || value === "avg" || value === "min" || value === "max") {
+    return value;
+  }
+  return null;
+}
+
+function sanitizeCastTarget(value: unknown): CastTarget | null {
+  if (
+    value === "string" ||
+    value === "integer" ||
+    value === "number" ||
+    value === "boolean" ||
+    value === "date"
+  ) {
     return value;
   }
   return null;
@@ -427,6 +444,92 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       data: {
         label: asString(data.label) ?? defaults.label,
         columns,
+      },
+    };
+  }
+
+  if (type === "renameColumns") {
+    const defaults = defaultRenameColumnsData();
+    return {
+      id,
+      type: "renameColumns",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        renames: sanitizeHttpColumnRenames(data.renames),
+      },
+    };
+  }
+
+  if (type === "castColumns") {
+    const defaults = defaultCastColumnsData();
+    const casts = Array.isArray(data.casts)
+      ? data.casts
+          .filter((row): row is Record<string, unknown> => isRecord(row))
+          .map((row) => {
+            const rowId = asString(row.id);
+            const column = asString(row.column) ?? "";
+            const target = sanitizeCastTarget(row.target);
+            if (rowId == null || target == null) return null;
+            return { id: rowId, column, target };
+          })
+          .filter((row): row is NonNullable<typeof row> => row != null)
+      : defaults.casts;
+    return {
+      id,
+      type: "castColumns",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        casts,
+      },
+    };
+  }
+
+  if (type === "fillReplace") {
+    const defaults = defaultFillReplaceData();
+    const fills = Array.isArray(data.fills)
+      ? data.fills
+          .filter((row): row is Record<string, unknown> => isRecord(row))
+          .map((row) => {
+            const rowId = asString(row.id);
+            if (rowId == null) return null;
+            return {
+              id: rowId,
+              column: asString(row.column) ?? "",
+              fillValue: asString(row.fillValue) ?? "",
+            };
+          })
+          .filter((row): row is NonNullable<typeof row> => row != null)
+      : defaults.fills;
+    const replacements = Array.isArray(data.replacements)
+      ? data.replacements
+          .filter((row): row is Record<string, unknown> => isRecord(row))
+          .map((row) => {
+            const rowId = asString(row.id);
+            if (rowId == null) return null;
+            const colRaw = row.column;
+            const column =
+              colRaw === null || colRaw === undefined || colRaw === ""
+                ? null
+                : asString(colRaw) ?? null;
+            return {
+              id: rowId,
+              column,
+              from: asString(row.from) ?? "",
+              to: asString(row.to) ?? "",
+            };
+          })
+          .filter((row): row is NonNullable<typeof row> => row != null)
+      : defaults.replacements;
+    return {
+      id,
+      type: "fillReplace",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        fills,
+        replacements,
       },
     };
   }

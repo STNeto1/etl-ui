@@ -29,6 +29,9 @@ import { SortNode } from "./nodes/SortNode";
 import { SwitchNode } from "./nodes/SwitchNode";
 import { AggregateNode } from "./nodes/AggregateNode";
 import { ComputeColumnNode } from "./nodes/ComputeColumnNode";
+import { RenameColumnsNode } from "./nodes/RenameColumnsNode";
+import { CastColumnsNode } from "./nodes/CastColumnsNode";
+import { FillReplaceNode } from "./nodes/FillReplaceNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
@@ -44,6 +47,9 @@ import {
   defaultSwitchData,
   defaultAggregateData,
   defaultComputeColumnData,
+  defaultRenameColumnsData,
+  defaultCastColumnsData,
+  defaultFillReplaceData,
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
@@ -76,6 +82,9 @@ const nodeTypes = {
   switch: SwitchNode,
   computeColumn: ComputeColumnNode,
   aggregate: AggregateNode,
+  renameColumns: RenameColumnsNode,
+  castColumns: CastColumnsNode,
+  fillReplace: FillReplaceNode,
 };
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -387,15 +396,45 @@ function FlowWorkspace() {
             data: defaultAggregateData(),
           },
         ]);
+      } else if (nodeType === "renameColumns") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "renameColumns",
+            position,
+            data: defaultRenameColumnsData(),
+          },
+        ]);
+      } else if (nodeType === "castColumns") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "castColumns",
+            position,
+            data: defaultCastColumnsData(),
+          },
+        ]);
+      } else if (nodeType === "fillReplace") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "fillReplace",
+            position,
+            data: defaultFillReplaceData(),
+          },
+        ]);
       }
     },
     [screenToFlowPosition],
   );
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
+    <div className="flex min-h-0 w-full min-w-0 flex-1 flex-row overflow-hidden">
       <NodePaletteSidebar />
-      <div className="relative min-h-0 min-w-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {hydrated && workspaceIndex != null ? (
           <WorkspaceToolbar
             workspaceIndex={workspaceIndex}
@@ -416,20 +455,23 @@ function FlowWorkspace() {
             onResetGraph={() => void handleResetGraph()}
           />
         ) : null}
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onDragOver={onDragOver}
-          onDrop={onDrop}
-          fitView
-        >
-          <Background color="#ccc" variant={BackgroundVariant.Dots} />
-          <Controls />
-        </ReactFlow>
+        <div className="min-h-0 w-full flex-1">
+          <ReactFlow
+            className="h-full w-full"
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={onConnect}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            fitView
+          >
+            <Background color="#ccc" variant={BackgroundVariant.Dots} />
+            <Controls />
+          </ReactFlow>
+        </div>
       </div>
     </div>
   );
@@ -438,7 +480,7 @@ function FlowWorkspace() {
 export default function App() {
   return (
     <ReactFlowProvider>
-      <div className="flex h-screen w-screen overflow-hidden">
+      <div className="flex h-dvh min-h-0 w-screen flex-col overflow-hidden">
         <FlowWorkspace />
       </div>
     </ReactFlowProvider>

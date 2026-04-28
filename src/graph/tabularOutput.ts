@@ -1,6 +1,8 @@
 import type { Edge } from "@xyflow/react";
 import { runAggregate } from "../aggregate/runAggregate";
 import { applyComputeRow } from "../computeColumn/template";
+import { applyCastToPayload } from "../cast/applyCast";
+import { applyFillReplaceToPayload } from "../fillReplace/applyFillReplace";
 import type { AppNode, CsvPayload, HttpColumnRename } from "../types/flow";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
@@ -162,6 +164,37 @@ function resolveNodeOutput(
         return selectedRow;
       });
       return { headers, rows };
+    }
+    case "renameColumns": {
+      const renameNode = node as Extract<AppNode, { type: "renameColumns" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const renames = renameNode.data.renames ?? [];
+      return applyHttpColumnRenames(input, renames);
+    }
+    case "castColumns": {
+      const castNode = node as Extract<AppNode, { type: "castColumns" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const casts = (castNode.data.casts ?? []).map((c) => ({
+        column: c.column,
+        target: c.target,
+      }));
+      return applyCastToPayload(input, casts);
+    }
+    case "fillReplace": {
+      const fillNode = node as Extract<AppNode, { type: "fillReplace" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const fills = fillNode.data.fills ?? [];
+      const replacements = fillNode.data.replacements ?? [];
+      return applyFillReplaceToPayload(input, fills, replacements);
     }
     case "computeColumn": {
       const computeNode = node as Extract<AppNode, { type: "computeColumn" }>;
