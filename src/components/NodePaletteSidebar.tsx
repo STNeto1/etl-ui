@@ -55,7 +55,9 @@ export function NodePaletteSidebar() {
               >
                 <div className="text-xs font-medium text-neutral-900">{item.label}</div>
                 {item.description != null && (
-                  <div className="mt-0.5 text-[10px] leading-snug text-neutral-500">{item.description}</div>
+                  <div className="mt-0.5 text-[10px] leading-snug text-neutral-500">
+                    {item.description}
+                  </div>
                 )}
               </div>
             </li>

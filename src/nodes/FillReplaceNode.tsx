@@ -50,8 +50,8 @@ export function FillReplaceNode({ id, data }: NodeProps<FillReplaceNodeType>) {
         Fill / Replace
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Fill trims-empty cells. Replace matches whole trimmed cell to trimmed &quot;from&quot;, then sets
-        &quot;to&quot;. All columns: pick &quot;(all columns)&quot;.
+        Fill trims-empty cells. Replace matches whole trimmed cell to trimmed &quot;from&quot;, then
+        sets &quot;to&quot;. All columns: pick &quot;(all columns)&quot;.
       </p>
 
       {incoming.length === 0 ? (
@@ -84,7 +84,9 @@ export function FillReplaceNode({ id, data }: NodeProps<FillReplaceNodeType>) {
                   value={f.column}
                   onChange={(e) =>
                     patchData({
-                      fills: fills.map((x) => (x.id === f.id ? { ...x, column: e.target.value } : x)),
+                      fills: fills.map((x) =>
+                        x.id === f.id ? { ...x, column: e.target.value } : x,
+                      ),
                     })
                   }
                 >
@@ -102,7 +104,9 @@ export function FillReplaceNode({ id, data }: NodeProps<FillReplaceNodeType>) {
                   value={f.fillValue}
                   onChange={(e) =>
                     patchData({
-                      fills: fills.map((x) => (x.id === f.id ? { ...x, fillValue: e.target.value } : x)),
+                      fills: fills.map((x) =>
+                        x.id === f.id ? { ...x, fillValue: e.target.value } : x,
+                      ),
                     })
                   }
                 />
@@ -137,9 +141,7 @@ export function FillReplaceNode({ id, data }: NodeProps<FillReplaceNodeType>) {
                     const v = e.target.value;
                     patchData({
                       replacements: replacements.map((x) =>
-                        x.id === r.id
-                          ? { ...x, column: v === GLOBAL_VALUE ? null : v }
-                          : x,
+                        x.id === r.id ? { ...x, column: v === GLOBAL_VALUE ? null : v } : x,
                       ),
                     });
                   }}

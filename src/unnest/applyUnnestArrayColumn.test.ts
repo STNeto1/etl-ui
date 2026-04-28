@@ -16,10 +16,12 @@ describe("applyUnnestArrayColumn", () => {
       headers: ["id", "tags"],
       rows: [{ id: "1", tags: "not-json" }],
     };
-    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "v" })).toEqual({
-      headers: ["id"],
-      rows: [{ id: "1" }],
-    });
+    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "v" })).toEqual(
+      {
+        headers: ["id"],
+        rows: [{ id: "1" }],
+      },
+    );
   });
 
   it("explodes primitive arrays and drops source column", () => {
@@ -27,7 +29,9 @@ describe("applyUnnestArrayColumn", () => {
       headers: ["id", "tags"],
       rows: [{ id: "1", tags: '["a","b"]' }],
     };
-    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "tag" })).toEqual({
+    expect(
+      applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "tag" }),
+    ).toEqual({
       headers: ["id", "tag"],
       rows: [
         { id: "1", tag: "a" },
@@ -41,7 +45,9 @@ describe("applyUnnestArrayColumn", () => {
       headers: ["id", "items"],
       rows: [{ id: "1", items: '[{"x":"1"},{"x":"2","y":"z"}]' }],
     };
-    expect(applyUnnestArrayColumn(payload, { column: "items", primitiveOutputColumn: "v" })).toEqual({
+    expect(
+      applyUnnestArrayColumn(payload, { column: "items", primitiveOutputColumn: "v" }),
+    ).toEqual({
       headers: ["id", "x", "y"],
       rows: [
         { id: "1", x: "1", y: "" },
@@ -55,10 +61,12 @@ describe("applyUnnestArrayColumn", () => {
       headers: ["id", "tags"],
       rows: [{ id: "1", tags: "[]" }],
     };
-    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "v" })).toEqual({
-      headers: ["id"],
-      rows: [{ id: "1" }],
-    });
+    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "v" })).toEqual(
+      {
+        headers: ["id"],
+        rows: [{ id: "1" }],
+      },
+    );
   });
 
   it("pads failed parses when another row defines a primitive output column", () => {
@@ -69,12 +77,14 @@ describe("applyUnnestArrayColumn", () => {
         { id: "2", tags: '["x"]' },
       ],
     };
-    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "t" })).toEqual({
-      headers: ["id", "t"],
-      rows: [
-        { id: "1", t: "" },
-        { id: "2", t: "x" },
-      ],
-    });
+    expect(applyUnnestArrayColumn(payload, { column: "tags", primitiveOutputColumn: "t" })).toEqual(
+      {
+        headers: ["id", "t"],
+        rows: [
+          { id: "1", t: "" },
+          { id: "2", t: "x" },
+        ],
+      },
+    );
   });
 });

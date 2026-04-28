@@ -16,7 +16,9 @@ describe("runAggregate", () => {
         { region: "A", amount: "3" },
       ],
     );
-    const metrics: AggregateMetricDef[] = [{ id: "1", outputName: "total", op: "sum", column: "amount" }];
+    const metrics: AggregateMetricDef[] = [
+      { id: "1", outputName: "total", op: "sum", column: "amount" },
+    ];
     expect(runAggregate(input, ["region"], metrics)).toEqual({
       headers: ["region", "total"],
       rows: [

@@ -1,7 +1,11 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
-import type { AppNode, HttpColumnRename, RenameColumnsNode as RenameColumnsNodeType } from "../types/flow";
+import type {
+  AppNode,
+  HttpColumnRename,
+  RenameColumnsNode as RenameColumnsNodeType,
+} from "../types/flow";
 
 function newRenameRow(): HttpColumnRename {
   return { id: crypto.randomUUID(), fromColumn: "", toColumn: "" };
@@ -24,7 +28,9 @@ export function RenameColumnsNode({ id, data }: NodeProps<RenameColumnsNodeType>
     (next: HttpColumnRename[]) => {
       setNodes((ns) =>
         ns.map((n) =>
-          n.id === id && n.type === "renameColumns" ? { ...n, data: { ...n.data, renames: next } } : n,
+          n.id === id && n.type === "renameColumns"
+            ? { ...n, data: { ...n.data, renames: next } }
+            : n,
         ),
       );
     },
@@ -80,10 +86,15 @@ export function RenameColumnsNode({ id, data }: NodeProps<RenameColumnsNodeType>
           onPointerDownCapture={(e) => e.stopPropagation()}
         >
           {renames.length === 0 && (
-            <p className="text-[11px] text-neutral-500">No renames yet. Add a row or pass-through.</p>
+            <p className="text-[11px] text-neutral-500">
+              No renames yet. Add a row or pass-through.
+            </p>
           )}
           {renames.map((row) => (
-            <div key={row.id} className="flex flex-wrap items-center gap-1 border-b border-neutral-100 py-1 last:border-0">
+            <div
+              key={row.id}
+              className="flex flex-wrap items-center gap-1 border-b border-neutral-100 py-1 last:border-0"
+            >
               <select
                 className="max-w-[120px] rounded border border-neutral-200 bg-white px-1 py-0.5 text-[11px]"
                 value={row.fromColumn}

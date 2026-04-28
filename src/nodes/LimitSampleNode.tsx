@@ -59,9 +59,7 @@ export function LimitSampleNode({ id, data }: NodeProps<LimitSampleNodeType>) {
           <label className="block text-[11px] font-medium text-neutral-700">Mode</label>
           <select
             value={mode}
-            onChange={(e) =>
-              patchData({ limitSampleMode: e.target.value as LimitSampleMode })
-            }
+            onChange={(e) => patchData({ limitSampleMode: e.target.value as LimitSampleMode })}
             className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-800"
           >
             <option value="first">First N rows</option>
@@ -106,9 +104,7 @@ export function LimitSampleNode({ id, data }: NodeProps<LimitSampleNodeType>) {
       </div>
 
       {incoming.length > 0 && (
-        <p className="mt-1 px-1 text-[10px] text-neutral-500">
-          Upstream rows: {upstreamRowCount}
-        </p>
+        <p className="mt-1 px-1 text-[10px] text-neutral-500">Upstream rows: {upstreamRowCount}</p>
       )}
 
       <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />

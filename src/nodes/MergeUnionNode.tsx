@@ -1,7 +1,11 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
-import type { AppNode, MergeUnionNode as MergeUnionNodeType, MergeUnionNodeData } from "../types/flow";
+import type {
+  AppNode,
+  MergeUnionNode as MergeUnionNodeType,
+  MergeUnionNodeData,
+} from "../types/flow";
 
 export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
   const { setNodes } = useReactFlow();
@@ -58,9 +62,7 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
   const toggleKey = useCallback(
     (key: string) => {
       const existing = data.dedupeKeys ?? [];
-      const next = existing.includes(key)
-        ? existing.filter((k) => k !== key)
-        : [...existing, key];
+      const next = existing.includes(key) ? existing.filter((k) => k !== key) : [...existing, key];
       patchData({ dedupeKeys: next });
     },
     [data.dedupeKeys, patchData],

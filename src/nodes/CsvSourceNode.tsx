@@ -56,9 +56,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     (patch: Partial<CsvSourceData>) => {
       setNodes((nodes) =>
         nodes.map((n) =>
-          n.id === id && n.type === "csvSource"
-            ? { ...n, data: { ...n.data, ...patch } }
-            : n,
+          n.id === id && n.type === "csvSource" ? { ...n, data: { ...n.data, ...patch } } : n,
         ),
       );
     },
@@ -207,7 +205,17 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     } else {
       patchData({ error: result.error, httpLastDiagnostics: null });
     }
-  }, [httpBody, httpHeaders, httpJsonArrayPath, httpMaxRetries, httpMethod, httpParams, httpTimeoutMs, httpUrl, patchData]);
+  }, [
+    httpBody,
+    httpHeaders,
+    httpJsonArrayPath,
+    httpMaxRetries,
+    httpMethod,
+    httpParams,
+    httpTimeoutMs,
+    httpUrl,
+    patchData,
+  ]);
 
   const httpRefreshRef = useRef(onHttpRefresh);
   useEffect(() => {
@@ -299,8 +307,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
   }, [httpBody, httpHeaders, httpMethod, httpParams, httpUrl, patchData]);
 
   const rowCount = data.csv?.rows.length ?? 0;
-  const status =
-    data.error != null ? "error" : data.csv != null ? "ready" : "empty";
+  const status = data.error != null ? "error" : data.csv != null ? "ready" : "empty";
 
   return (
     <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
@@ -384,8 +391,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
               {data.fileName != null && (
                 <>
                   {" "}
-                  ·{" "}
-                  <span className="text-neutral-500">{data.fileName}</span>
+                  · <span className="text-neutral-500">{data.fileName}</span>
                 </>
               )}
             </span>
@@ -407,8 +413,9 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       >
         <p className="text-sm font-medium text-neutral-900">Load from URL</p>
         <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">
-          GET or POST; CSV, JSON array (optional path), or NDJSON. Last successful response is cached in this workspace.
-          Browser CORS applies. Sensitive header values use a masked field.
+          GET or POST; CSV, JSON array (optional path), or NDJSON. Last successful response is
+          cached in this workspace. Browser CORS applies. Sensitive header values use a masked
+          field.
         </p>
         <div
           className="nodrag nopan mt-2 space-y-2"
@@ -481,7 +488,10 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
               className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
             />
           </label>
-          <p className="break-all text-[9px] leading-snug text-neutral-400" title={resolvedUrlPreview}>
+          <p
+            className="break-all text-[9px] leading-snug text-neutral-400"
+            title={resolvedUrlPreview}
+          >
             Resolved: {resolvedUrlPreview || "—"}
           </p>
 
@@ -626,9 +636,10 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             <div className="space-y-0.5 text-[10px] text-neutral-500">
               <p>
                 Last fetch:{" "}
-                {new Intl.DateTimeFormat(undefined, { dateStyle: "short", timeStyle: "short" }).format(
-                  data.loadedAt,
-                )}
+                {new Intl.DateTimeFormat(undefined, {
+                  dateStyle: "short",
+                  timeStyle: "short",
+                }).format(data.loadedAt)}
                 {data.fileName != null && (
                   <>
                     {" "}
@@ -669,7 +680,9 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         className="px-1 pt-2"
       >
         {data.csv == null ? (
-          <p className="text-xs text-neutral-500">Load a CSV on the Load tab to see column types.</p>
+          <p className="text-xs text-neutral-500">
+            Load a CSV on the Load tab to see column types.
+          </p>
         ) : (
           <div className="max-h-[200px] overflow-y-auto rounded border border-neutral-200">
             <table className="w-full border-collapse text-left text-[11px]">
@@ -682,11 +695,11 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
               </thead>
               <tbody>
                 {columnTypes.map((col) => (
-                  <tr
-                    key={col.name}
-                    className="border-b border-neutral-100 last:border-b-0"
-                  >
-                    <td className="max-w-[100px] truncate px-1.5 py-1 font-medium text-neutral-800" title={col.name}>
+                  <tr key={col.name} className="border-b border-neutral-100 last:border-b-0">
+                    <td
+                      className="max-w-[100px] truncate px-1.5 py-1 font-medium text-neutral-800"
+                      title={col.name}
+                    >
                       {col.name}
                     </td>
                     <td

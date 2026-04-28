@@ -2,7 +2,13 @@ import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
-import type { AppNode, JoinKeyPair, JoinNode as JoinNodeType, JoinNodeData, JoinKind } from "../types/flow";
+import type {
+  AppNode,
+  JoinKeyPair,
+  JoinNode as JoinNodeType,
+  JoinNodeData,
+  JoinKind,
+} from "../types/flow";
 
 export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
   const { setNodes } = useReactFlow();
@@ -36,7 +42,9 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
   const patchData = useCallback(
     (patch: Partial<JoinNodeData>) => {
       setNodes((ns) =>
-        ns.map((n) => (n.id === id && n.type === "join" ? { ...n, data: { ...n.data, ...patch } } : n)),
+        ns.map((n) =>
+          n.id === id && n.type === "join" ? { ...n, data: { ...n.data, ...patch } } : n,
+        ),
       );
     },
     [id, setNodes],
@@ -46,9 +54,7 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
     if (leftHeaders.length === 0 || rightHeaders.length === 0) return [];
     const leftSet = new Set(leftHeaders);
     const rightSet = new Set(rightHeaders);
-    return keyPairs.filter(
-      (p) => !leftSet.has(p.leftColumn) || !rightSet.has(p.rightColumn),
-    );
+    return keyPairs.filter((p) => !leftSet.has(p.leftColumn) || !rightSet.has(p.rightColumn));
   }, [keyPairs, leftHeaders, rightHeaders]);
 
   const addPair = useCallback(() => {
@@ -100,10 +106,13 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
         />
       </div>
 
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Join</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Join
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Match rows where all key pairs are equal (string). Connect <span className="font-medium">Left</span> and{" "}
-        <span className="font-medium">Right</span> inputs.
+        Match rows where all key pairs are equal (string). Connect{" "}
+        <span className="font-medium">Left</span> and <span className="font-medium">Right</span>{" "}
+        inputs.
       </p>
 
       <div
@@ -156,7 +165,9 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
               </button>
             </div>
             {keyPairs.length === 0 ? (
-              <p className="mt-1 text-[10px] text-neutral-500">No key pairs yet. Add at least one pair.</p>
+              <p className="mt-1 text-[10px] text-neutral-500">
+                No key pairs yet. Add at least one pair.
+              </p>
             ) : (
               <ul className="mt-1 space-y-1.5">
                 {keyPairs.map((pair, index) => (
@@ -205,7 +216,9 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
       )}
 
       {showNoKeysWarning && (
-        <p className="mt-1 px-1 text-[10px] text-amber-600">Add at least one key pair for the join to produce output.</p>
+        <p className="mt-1 px-1 text-[10px] text-amber-600">
+          Add at least one key pair for the join to produce output.
+        </p>
       )}
       {showInvalidPairsWarning && (
         <p className="mt-1 px-1 text-[10px] text-amber-600">

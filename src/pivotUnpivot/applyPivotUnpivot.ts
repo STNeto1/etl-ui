@@ -14,7 +14,12 @@ export type ApplyPivotUnpivotParams = {
   valuesColumn: string;
 };
 
-function unpivotValid(csv: CsvPayload, idColumns: string[], nameCol: string, valueCol: string): boolean {
+function unpivotValid(
+  csv: CsvPayload,
+  idColumns: string[],
+  nameCol: string,
+  valueCol: string,
+): boolean {
   if (idColumns.length === 0) return false;
   if (nameCol === valueCol) return false;
   if (!idColumns.every((c) => csv.headers.includes(c))) return false;
@@ -23,7 +28,12 @@ function unpivotValid(csv: CsvPayload, idColumns: string[], nameCol: string, val
   return true;
 }
 
-function pivotValid(csv: CsvPayload, indexColumns: string[], namesColumn: string, valuesColumn: string): boolean {
+function pivotValid(
+  csv: CsvPayload,
+  indexColumns: string[],
+  namesColumn: string,
+  valuesColumn: string,
+): boolean {
   if (indexColumns.length === 0) return false;
   const nc = namesColumn.trim();
   const vc = valuesColumn.trim();
@@ -54,7 +64,12 @@ function allocatePivotHeader(raw: string, reserved: Set<string>): string {
   return candidate;
 }
 
-function applyUnpivot(csv: CsvPayload, idColumns: string[], nameColumn: string, valueColumn: string): CsvPayload {
+function applyUnpivot(
+  csv: CsvPayload,
+  idColumns: string[],
+  nameColumn: string,
+  valueColumn: string,
+): CsvPayload {
   const nameCol = nameColumn.trim() || "name";
   const valueCol = valueColumn.trim() || "value";
   if (!unpivotValid(csv, idColumns, nameCol, valueCol)) {
@@ -100,7 +115,8 @@ function applyPivot(
   const reserved = new Set(indexColumns);
   const rawToFinal = new Map<string, string>();
 
-  const normalizedPivotNameKey = (raw: string): string => (raw.trim().length === 0 ? "" : raw.trim());
+  const normalizedPivotNameKey = (raw: string): string =>
+    raw.trim().length === 0 ? "" : raw.trim();
 
   const finalHeaderForRaw = (raw: string): string => {
     const nk = normalizedPivotNameKey(raw);

@@ -50,7 +50,9 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
     (patch: Partial<AggregateNodeData>) => {
       setNodes((nodeSnapshot) =>
         nodeSnapshot.map((node) =>
-          node.id === id && node.type === "aggregate" ? { ...node, data: { ...node.data, ...patch } } : node,
+          node.id === id && node.type === "aggregate"
+            ? { ...node, data: { ...node.data, ...patch } }
+            : node,
         ),
       );
     },
@@ -131,11 +133,13 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
   return (
     <div className="min-w-[300px] max-w-[460px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Aggregate</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Aggregate
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Group rows by key columns, then add metrics. Empty group keys produce one totals row. Count without a
-        source column counts rows; with a column, counts non-blank cells. Sum / avg / min / max use finite numbers
-        only (non-numeric cells skipped for avg).
+        Group rows by key columns, then add metrics. Empty group keys produce one totals row. Count
+        without a source column counts rows; with a column, counts non-blank cells. Sum / avg / min
+        / max use finite numbers only (non-numeric cells skipped for avg).
       </p>
 
       {incoming.length === 0 ? (
@@ -178,7 +182,10 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
             ) : (
               <ul className="mt-1 flex max-h-[120px] flex-col gap-1 overflow-y-auto pr-0.5">
                 {groupKeys.map((key, index) => (
-                  <li key={`group-key-${index}`} className="rounded border border-neutral-200 bg-white px-1.5 py-1">
+                  <li
+                    key={`group-key-${index}`}
+                    className="rounded border border-neutral-200 bg-white px-1.5 py-1"
+                  >
                     <div className="flex items-center gap-1">
                       <select
                         value={key}
@@ -226,7 +233,9 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
 
           <div className="rounded border border-neutral-200 bg-neutral-50/90 px-2 py-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">Metrics</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">
+                Metrics
+              </span>
               <button
                 type="button"
                 onClick={addMetric}
@@ -236,7 +245,9 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
               </button>
             </div>
             {metrics.length === 0 ? (
-              <p className="mt-1 text-[10px] text-neutral-500">No metrics—downstream receives only group key columns.</p>
+              <p className="mt-1 text-[10px] text-neutral-500">
+                No metrics—downstream receives only group key columns.
+              </p>
             ) : (
               <ul className="mt-1 flex max-h-[220px] flex-col gap-2 overflow-y-auto pr-0.5">
                 {metrics.map((m, index) => (
@@ -255,7 +266,10 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
                           if (op === "count") {
                             patchMetric(m.id, { op, column: undefined });
                           } else {
-                            const col = m.column && headers.includes(m.column) ? m.column : headers[0] ?? "";
+                            const col =
+                              m.column && headers.includes(m.column)
+                                ? m.column
+                                : (headers[0] ?? "");
                             patchMetric(m.id, { op, column: col || undefined });
                           }
                         }}

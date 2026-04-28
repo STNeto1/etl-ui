@@ -33,10 +33,12 @@ export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Filter</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Filter
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Wire any upstream tabular output (CSV source or Visualization pass-through). Downstream
-        sees filtered rows.
+        Wire any upstream tabular output (CSV source or Visualization pass-through). Downstream sees
+        filtered rows.
       </p>
       {headers.length === 0 ? (
         <div

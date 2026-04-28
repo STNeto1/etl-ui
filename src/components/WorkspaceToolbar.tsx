@@ -51,7 +51,12 @@ export function WorkspaceToolbar({
         <button type="button" className={btnClass} onClick={onRenameWorkspace}>
           Rename
         </button>
-        <button type="button" className={btnClass} disabled={!canDelete} onClick={() => void onDeleteWorkspace()}>
+        <button
+          type="button"
+          className={btnClass}
+          disabled={!canDelete}
+          onClick={() => void onDeleteWorkspace()}
+        >
           Delete
         </button>
       </div>

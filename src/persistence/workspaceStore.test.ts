@@ -161,7 +161,7 @@ describe("workspaceStore", () => {
     const a = await createWorkspace("A");
     const b = await createWorkspace("B");
     expect(a && b).toBeTruthy();
-    const idA = a!.id;
+    const _idA = a!.id;
     const idB = b!.id;
     await setActiveWorkspaceId(idB);
     const after = await deleteWorkspace(idB);
@@ -217,9 +217,9 @@ describe("workspaceStore", () => {
 
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded).not.toBeNull();
-    expect(loaded?.nodes.some((node) => node.id === "csv-source" && node.type === "csvSource")).toBe(
-      true,
-    );
+    expect(
+      loaded?.nodes.some((node) => node.id === "csv-source" && node.type === "csvSource"),
+    ).toBe(true);
   });
 
   it("writeWorkspaceSnapshotRawForTest targets arbitrary workspace key", async () => {

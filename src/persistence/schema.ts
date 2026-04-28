@@ -66,7 +66,9 @@ function asStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === "string");
 }
 
-function sanitizeCsvPayload(value: unknown): { headers: string[]; rows: Record<string, string>[] } | null {
+function sanitizeCsvPayload(
+  value: unknown,
+): { headers: string[]; rows: Record<string, string>[] } | null {
   if (!isRecord(value) || !Array.isArray(value.headers) || !Array.isArray(value.rows)) return null;
   const headers = value.headers.filter((h): h is string => typeof h === "string");
   const rows = value.rows
@@ -164,7 +166,13 @@ function sanitizeSortDirection(value: unknown): SortDirection | null {
 }
 
 function sanitizeAggregateOp(value: unknown): AggregateMetricOp | null {
-  if (value === "count" || value === "sum" || value === "avg" || value === "min" || value === "max") {
+  if (
+    value === "count" ||
+    value === "sum" ||
+    value === "avg" ||
+    value === "min" ||
+    value === "max"
+  ) {
     return value;
   }
   return null;
@@ -198,7 +206,9 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
     const csv = sanitizeCsvPayload(data.csv);
     const sourceRaw = data.source;
     const source =
-      sourceRaw === "file" || sourceRaw === "template" || sourceRaw === "http" ? sourceRaw : defaults.source;
+      sourceRaw === "file" || sourceRaw === "template" || sourceRaw === "http"
+        ? sourceRaw
+        : defaults.source;
     const methodRaw = data.httpMethod;
     const httpMethod = methodRaw === "POST" ? "POST" : defaults.httpMethod;
     const httpTimeoutMs = asNumber(data.httpTimeoutMs);
@@ -247,7 +257,8 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
           httpAutoRefreshSec != null && httpAutoRefreshSec >= 0 && httpAutoRefreshSec <= 86_400
             ? Math.floor(httpAutoRefreshSec)
             : defaults.httpAutoRefreshSec,
-        httpAutoRefreshPaused: asBoolean(data.httpAutoRefreshPaused) ?? defaults.httpAutoRefreshPaused,
+        httpAutoRefreshPaused:
+          asBoolean(data.httpAutoRefreshPaused) ?? defaults.httpAutoRefreshPaused,
         httpLastDiagnostics,
         httpColumnRenames: sanitizeHttpColumnRenames(data.httpColumnRenames),
       },
@@ -384,7 +395,8 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       position: { x, y },
       data: {
         label: asString(data.label) ?? defaults.label,
-        pivotUnpivotMode: sanitizePivotUnpivotMode(data.pivotUnpivotMode) ?? defaults.pivotUnpivotMode,
+        pivotUnpivotMode:
+          sanitizePivotUnpivotMode(data.pivotUnpivotMode) ?? defaults.pivotUnpivotMode,
         idColumns: asStringArray(data.idColumns),
         nameColumn: asString(data.nameColumn) ?? defaults.nameColumn,
         valueColumn: asString(data.valueColumn) ?? defaults.valueColumn,
@@ -513,7 +525,8 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
                     const column = asString(rule.column);
                     const op = sanitizeFilterOp(rule.op);
                     const value = asString(rule.value);
-                    if (idValue == null || column == null || op == null || value == null) return null;
+                    if (idValue == null || column == null || op == null || value == null)
+                      return null;
                     return { id: idValue, column, op, value };
                   })
                   .filter((rule): rule is NonNullable<typeof rule> => rule != null)
@@ -627,7 +640,7 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
             const column =
               colRaw === null || colRaw === undefined || colRaw === ""
                 ? null
-                : asString(colRaw) ?? null;
+                : (asString(colRaw) ?? null);
             return {
               id: rowId,
               column,
@@ -662,7 +675,12 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
             const column = asString(m.column);
             if (metricId == null || outputName == null || op == null) return null;
             if (op === "count") {
-              return { id: metricId, outputName, op, ...(column != null && column.length > 0 ? { column } : {}) };
+              return {
+                id: metricId,
+                outputName,
+                op,
+                ...(column != null && column.length > 0 ? { column } : {}),
+              };
             }
             if (column == null) return null;
             return { id: metricId, outputName, op, column };
@@ -701,7 +719,9 @@ function sanitizeEdge(rawEdge: unknown): Edge | null {
 }
 
 function ensureRequiredCsvSource(nodes: AppNode[]): AppNode[] {
-  const fixedSource = nodes.find((node) => node.id === CSV_SOURCE_NODE_ID && node.type === "csvSource");
+  const fixedSource = nodes.find(
+    (node) => node.id === CSV_SOURCE_NODE_ID && node.type === "csvSource",
+  );
   const withoutFixed = nodes.filter((node) => node.id !== CSV_SOURCE_NODE_ID);
   if (fixedSource != null) {
     return [fixedSource, ...withoutFixed];
@@ -778,9 +798,7 @@ export function deserializeWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | 
   const legacyHttp = extractLegacyHttpFetchIntoCsvSource(rawNodes);
 
   const nodes = ensureRequiredCsvSource(
-    rawNodes
-      .map((node) => sanitizeNode(node))
-      .filter((node): node is AppNode => node != null),
+    rawNodes.map((node) => sanitizeNode(node)).filter((node): node is AppNode => node != null),
   ).map((node) => {
     if (legacyHttp == null) return node;
     if (node.id === CSV_SOURCE_NODE_ID && node.type === "csvSource") {

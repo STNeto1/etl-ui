@@ -47,7 +47,11 @@ function normalizeRows(payloads: CsvPayload[]): CsvPayload {
   return { headers, rows };
 }
 
-function compareSortValues(left: string | undefined, right: string | undefined, direction: "asc" | "desc"): number {
+function compareSortValues(
+  left: string | undefined,
+  right: string | undefined,
+  direction: "asc" | "desc",
+): number {
   const leftValue = left ?? "";
   const rightValue = right ?? "";
   const leftTrimmed = leftValue.trim();
@@ -90,7 +94,13 @@ export function getTabularOutputForEdge(
   edges: Edge[],
   visited: Set<string> = new Set(),
 ): CsvPayload | null {
-  return resolveNodeOutput(incomingEdge.source, incomingEdge.sourceHandle ?? null, nodes, edges, visited);
+  return resolveNodeOutput(
+    incomingEdge.source,
+    incomingEdge.sourceHandle ?? null,
+    nodes,
+    edges,
+    visited,
+  );
 }
 
 function applyHttpColumnRenames(csv: CsvPayload, renames: HttpColumnRename[]): CsvPayload {

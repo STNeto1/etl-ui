@@ -4,7 +4,8 @@ function escapeCell(value: string): string {
   if (value.includes('"')) {
     value = value.replaceAll('"', '""');
   }
-  const mustQuote = value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r");
+  const mustQuote =
+    value.includes(",") || value.includes('"') || value.includes("\n") || value.includes("\r");
   return mustQuote ? `"${value}"` : value;
 }
 

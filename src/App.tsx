@@ -234,9 +234,7 @@ function FlowWorkspace() {
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {
-      const resetSource = changes.some(
-        (c) => c.type === "remove" && c.id === CSV_SOURCE_NODE_ID,
-      );
+      const resetSource = changes.some((c) => c.type === "remove" && c.id === CSV_SOURCE_NODE_ID);
       const appliedChanges = changes.filter(
         (c) => !(c.type === "remove" && c.id === CSV_SOURCE_NODE_ID),
       );

@@ -12,7 +12,10 @@ describe("buildCurlCommand", () => {
   it("builds GET with query params and headers", () => {
     const params: HttpFetchKv[] = [{ id: "1", key: "q", value: "x" }];
     const headers: HttpFetchKv[] = [{ id: "2", key: "X-Test", value: "1" }];
-    const r = buildCurlCommand("https://example.com/a", params, headers, { method: "GET", body: "" });
+    const r = buildCurlCommand("https://example.com/a", params, headers, {
+      method: "GET",
+      body: "",
+    });
     expect("command" in r).toBe(true);
     if ("command" in r) {
       expect(r.command).toContain("curl");

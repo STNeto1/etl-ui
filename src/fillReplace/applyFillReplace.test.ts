@@ -17,7 +17,11 @@ describe("applyFillReplaceToPayload", () => {
       headers: ["k"],
       rows: [{ k: "  hi  " }],
     };
-    const out = applyFillReplaceToPayload(input, [], [{ id: "1", column: "k", from: "hi", to: "X" }]);
+    const out = applyFillReplaceToPayload(
+      input,
+      [],
+      [{ id: "1", column: "k", from: "hi", to: "X" }],
+    );
     expect(out.rows[0]?.k).toBe("X");
   });
 
@@ -26,7 +30,11 @@ describe("applyFillReplaceToPayload", () => {
       headers: ["a", "b"],
       rows: [{ a: "1", b: "1" }],
     };
-    const out = applyFillReplaceToPayload(input, [], [{ id: "1", column: null, from: "1", to: "2" }]);
+    const out = applyFillReplaceToPayload(
+      input,
+      [],
+      [{ id: "1", column: null, from: "1", to: "2" }],
+    );
     expect(out.rows[0]).toEqual({ a: "2", b: "2" });
   });
 });

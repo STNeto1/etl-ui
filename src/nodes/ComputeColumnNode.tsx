@@ -104,12 +104,13 @@ export function ComputeColumnNode({ id, data }: NodeProps<ComputeColumnNodeType>
         Compute column
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Use <code className="rounded bg-neutral-100 px-0.5">{"{{Column}}"}</code> for the cell value (exact
-        header name). After substitution, if the whole value is only numbers and{" "}
-        <code className="rounded bg-neutral-100 px-0.5">+ - * / ( )</code> it is evaluated as arithmetic (e.g.{" "}
+        Use <code className="rounded bg-neutral-100 px-0.5">{"{{Column}}"}</code> for the cell value
+        (exact header name). After substitution, if the whole value is only numbers and{" "}
+        <code className="rounded bg-neutral-100 px-0.5">+ - * / ( )</code> it is evaluated as
+        arithmetic (e.g.{" "}
         <code className="rounded bg-neutral-100 px-0.5">{"{{qty}}*{{price}}"}</code>
-        ). Otherwise it stays plain text. Order matters—later defs can use earlier output names. Duplicate output
-        names overwrite. Non-finite math (e.g. divide by zero) becomes empty.
+        ). Otherwise it stays plain text. Order matters—later defs can use earlier output names.
+        Duplicate output names overwrite. Non-finite math (e.g. divide by zero) becomes empty.
       </p>
 
       {incoming.length === 0 ? (
@@ -156,10 +157,7 @@ export function ComputeColumnNode({ id, data }: NodeProps<ComputeColumnNodeType>
                 const blankName = trimmed.length === 0;
                 const dup = trimmed.length > 0 && duplicateOutputNames.has(trimmed);
                 return (
-                  <li
-                    key={col.id}
-                    className="rounded border border-neutral-200 bg-white px-2 py-2"
-                  >
+                  <li key={col.id} className="rounded border border-neutral-200 bg-white px-2 py-2">
                     <div className="flex flex-wrap items-center gap-1">
                       <input
                         value={col.outputName}
@@ -198,7 +196,9 @@ export function ComputeColumnNode({ id, data }: NodeProps<ComputeColumnNodeType>
                         {dup && "Duplicate output name—later definitions overwrite earlier values."}
                       </p>
                     )}
-                    <label className="mt-1 block text-[10px] font-medium text-neutral-600">Template</label>
+                    <label className="mt-1 block text-[10px] font-medium text-neutral-600">
+                      Template
+                    </label>
                     <textarea
                       value={col.expression}
                       onChange={(e) => patchColumn(col.id, { expression: e.target.value })}

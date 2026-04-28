@@ -29,10 +29,7 @@ function csvSourceNode(id: string, csv: CsvPayload): AppNode {
   };
 }
 
-function mergeNode(
-  id: string,
-  overrides?: Partial<MergeUnionNode["data"]>,
-): AppNode {
+function mergeNode(id: string, overrides?: Partial<MergeUnionNode["data"]>): AppNode {
   return {
     id,
     type: "mergeUnion",
@@ -187,7 +184,11 @@ function deduplicateNode(
 
 function limitSampleNode(
   id: string,
-  overrides?: Partial<{ limitSampleMode: "first" | "random"; rowCount: number; randomSeed: number }>,
+  overrides?: Partial<{
+    limitSampleMode: "first" | "random";
+    rowCount: number;
+    randomSeed: number;
+  }>,
 ): AppNode {
   return {
     id,
@@ -695,8 +696,14 @@ describe("getTabularOutput mergeUnion", () => {
         { id: "1", name: "Ada" },
       ],
     });
-    const ascNodes: AppNode[] = [source, sortNode("sort-asc", [{ column: "id", direction: "asc" }])];
-    const descNodes: AppNode[] = [source, sortNode("sort-desc", [{ column: "id", direction: "desc" }])];
+    const ascNodes: AppNode[] = [
+      source,
+      sortNode("sort-asc", [{ column: "id", direction: "asc" }]),
+    ];
+    const descNodes: AppNode[] = [
+      source,
+      sortNode("sort-desc", [{ column: "id", direction: "desc" }]),
+    ];
     const ascEdges = [edge("e1", "src-1", "sort-asc")];
     const descEdges = [edge("e2", "src-1", "sort-desc")];
 
@@ -763,8 +770,14 @@ describe("getTabularOutput mergeUnion", () => {
         { id: "c", score: "1" },
       ],
     });
-    const ascNodes: AppNode[] = [source, sortNode("sort-asc", [{ column: "score", direction: "asc" }])];
-    const descNodes: AppNode[] = [source, sortNode("sort-desc", [{ column: "score", direction: "desc" }])];
+    const ascNodes: AppNode[] = [
+      source,
+      sortNode("sort-asc", [{ column: "score", direction: "asc" }]),
+    ];
+    const descNodes: AppNode[] = [
+      source,
+      sortNode("sort-desc", [{ column: "score", direction: "desc" }]),
+    ];
     const ascEdges = [edge("e1", "src-1", "sort-asc")];
     const descEdges = [edge("e2", "src-1", "sort-desc")];
 
@@ -863,7 +876,7 @@ describe("getTabularOutput mergeUnion", () => {
     expect(getTabularOutput("viz-default", nodes, edges)?.rows).toEqual([{ id: "2", name: "Lin" }]);
   });
 
-  it("routes non-matching rows for legacy Switch edges with sourceHandle \"default\"", () => {
+  it('routes non-matching rows for legacy Switch edges with sourceHandle "default"', () => {
     const nodes: AppNode[] = [
       csvSourceNode("src-1", {
         headers: ["id", "name"],
@@ -1015,7 +1028,9 @@ describe("getTabularOutput computeColumn", () => {
     ];
     const edges = [edge("e1", "src-1", "cc-1")];
 
-    expect(getTabularOutput("cc-1", nodes, edges)?.rows).toEqual([{ a: "x", step1: "x", step2: "x!" }]);
+    expect(getTabularOutput("cc-1", nodes, edges)?.rows).toEqual([
+      { a: "x", step1: "x", step2: "x!" },
+    ]);
   });
 
   it("overwrites an existing column when outputName matches", () => {
@@ -1040,12 +1055,16 @@ describe("getTabularOutput computeColumn", () => {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
-      computeColumnNode("cc-1", [{ id: "1", outputName: "label", expression: "{{name}} ({{id}})" }]),
+      computeColumnNode("cc-1", [
+        { id: "1", outputName: "label", expression: "{{name}} ({{id}})" },
+      ]),
       visualizationNode("viz-1"),
     ];
     const edges = [edge("e1", "src-1", "cc-1"), edge("e2", "cc-1", "viz-1")];
 
-    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([{ id: "1", name: "Ada", label: "Ada (1)" }]);
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
+      { id: "1", name: "Ada", label: "Ada (1)" },
+    ]);
   });
 
   it("extends headers for compute column when there are zero rows", () => {
@@ -1076,7 +1095,11 @@ describe("getTabularOutput aggregate", () => {
           { region: "E", amount: "3" },
         ],
       }),
-      aggregateNode("agg-1", ["region"], [{ id: "m1", outputName: "total", op: "sum", column: "amount" }]),
+      aggregateNode(
+        "agg-1",
+        ["region"],
+        [{ id: "m1", outputName: "total", op: "sum", column: "amount" }],
+      ),
     ];
     const edges = [edge("e1", "src-1", "agg-1")];
 
@@ -1099,10 +1122,14 @@ describe("getTabularOutput aggregate", () => {
           { k: "b", v: "4" },
         ],
       }),
-      aggregateNode("agg-1", ["k"], [
-        { id: "1", outputName: "n", op: "count" },
-        { id: "2", outputName: "s", op: "sum", column: "v" },
-      ]),
+      aggregateNode(
+        "agg-1",
+        ["k"],
+        [
+          { id: "1", outputName: "n", op: "count" },
+          { id: "2", outputName: "s", op: "sum", column: "v" },
+        ],
+      ),
       visualizationNode("viz-1"),
     ];
     const edges = [edge("e1", "src-1", "agg-1"), edge("e2", "agg-1", "viz-1")];
@@ -1567,9 +1594,7 @@ describe("getTabularOutput constantColumn", () => {
         headers: ["id"],
         rows: [{ id: "1" }],
       }),
-      constantColumnNode("cc-1", [
-        { id: "c1", columnName: "source", value: "sistema_x" },
-      ]),
+      constantColumnNode("cc-1", [{ id: "c1", columnName: "source", value: "sistema_x" }]),
     ];
     const edges = [edge("e1", "src-1", "cc-1")];
     expect(getTabularOutput("cc-1", nodes, edges)).toEqual({

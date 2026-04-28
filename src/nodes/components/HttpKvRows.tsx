@@ -14,7 +14,8 @@ export type HttpKvRowsProps = {
   maskSensitiveHeaderValues?: boolean;
 };
 
-const SENSITIVE_HEADER = /^(authorization|cookie|set-cookie|x-api-key|api-key|proxy-authorization)$/i;
+const SENSITIVE_HEADER =
+  /^(authorization|cookie|set-cookie|x-api-key|api-key|proxy-authorization)$/i;
 
 function passwordMaskForRow(key: string, enabled: boolean | undefined): boolean {
   return Boolean(enabled && SENSITIVE_HEADER.test(key.trim()));

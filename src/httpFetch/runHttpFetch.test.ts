@@ -17,7 +17,9 @@ describe("buildRequestUrl", () => {
   });
 
   it("returns error for invalid URL", () => {
-    expect(buildRequestUrl("not-a-url", [])).toMatchObject({ error: expect.stringContaining("Invalid URL") });
+    expect(buildRequestUrl("not-a-url", [])).toMatchObject({
+      error: expect.stringContaining("Invalid URL"),
+    });
   });
 
   it("appends query params and skips blank keys", () => {
@@ -99,7 +101,10 @@ describe("parseNdjsonLinesToCsvPayload", () => {
     expect(r).toEqual({
       csv: {
         headers: ["a", "b"],
-        rows: [{ a: "1", b: "" }, { a: "", b: "2" }],
+        rows: [
+          { a: "1", b: "" },
+          { a: "", b: "2" },
+        ],
       },
     });
   });

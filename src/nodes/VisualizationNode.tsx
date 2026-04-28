@@ -1,12 +1,5 @@
 import { useCallback, useMemo, type ChangeEvent } from "react";
-import {
-  Handle,
-  Position,
-  useEdges,
-  useNodes,
-  useReactFlow,
-  type NodeProps,
-} from "@xyflow/react";
+import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import type {
   AppNode,
@@ -76,12 +69,10 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
 
   const csv = resolution.kind === "ready" ? resolution.csv : null;
   const viaFilter = resolution.kind === "ready" ? resolution.viaFilter : false;
-  const rowsBeforeFilter =
-    resolution.kind === "ready" ? resolution.rowsBeforeFilter : null;
+  const rowsBeforeFilter = resolution.kind === "ready" ? resolution.rowsBeforeFilter : null;
 
   const totalRows = resolution.kind === "ready" ? resolution.displayRows.length : 0;
-  const effectiveRowCount =
-    totalRows === 0 ? 0 : Math.min(Math.max(1, requestedRows), totalRows);
+  const effectiveRowCount = totalRows === 0 ? 0 : Math.min(Math.max(1, requestedRows), totalRows);
 
   const previewRows = useMemo(() => {
     if (resolution.kind !== "ready") return [];
@@ -108,10 +99,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   );
 
   const filterShrunk =
-    viaFilter &&
-    rowsBeforeFilter != null &&
-    rowsBeforeFilter > 0 &&
-    totalRows < rowsBeforeFilter;
+    viaFilter && rowsBeforeFilter != null && rowsBeforeFilter > 0 && totalRows < rowsBeforeFilter;
 
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">

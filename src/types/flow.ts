@@ -423,7 +423,8 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   {
     type: "computeColumn",
     label: "Compute column",
-    description: "Add columns with {{Header}} templates; numeric-only lines evaluate as + - * / ( )",
+    description:
+      "Add columns with {{Header}} templates; numeric-only lines evaluate as + - * / ( )",
   },
   {
     type: "aggregate",
@@ -448,7 +449,8 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   {
     type: "pivotUnpivot",
     label: "Pivot / Unpivot",
-    description: "Wide to long (unpivot) or long to wide (pivot); duplicate pivot keys last row wins",
+    description:
+      "Wide to long (unpivot) or long to wide (pivot); duplicate pivot keys last row wins",
   },
 ];
 

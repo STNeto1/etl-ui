@@ -43,7 +43,9 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
   return (
     <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Download</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Download
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
         Sink node that exports the upstream tabular output as a CSV file.
       </p>

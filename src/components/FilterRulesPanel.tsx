@@ -39,9 +39,7 @@ export function FilterRulesPanel({
   };
 
   const updateRule = (ruleId: string, patch: Partial<Omit<FilterRule, "id">>) => {
-    onRulesChange(
-      rules.map((r) => (r.id === ruleId ? { ...r, ...patch } : r)),
-    );
+    onRulesChange(rules.map((r) => (r.id === ruleId ? { ...r, ...patch } : r)));
   };
 
   const removeRule = (ruleId: string) => {
@@ -108,7 +106,8 @@ export function FilterRulesPanel({
 
       {invalidCount > 0 && (
         <p className="mt-1 text-[10px] text-amber-700">
-          {invalidCount} rule{invalidCount === 1 ? "" : "s"} use columns not in this file—they are ignored.
+          {invalidCount} rule{invalidCount === 1 ? "" : "s"} use columns not in this file—they are
+          ignored.
         </p>
       )}
 
@@ -134,9 +133,7 @@ export function FilterRulesPanel({
                   className="max-w-[100px] rounded border border-neutral-300 bg-white px-0.5 py-0.5 text-[10px] text-neutral-900"
                 >
                   {!headers.includes(rule.column) && (
-                    <option value={rule.column}>
-                      {rule.column || "(unknown column)"}
-                    </option>
+                    <option value={rule.column}>{rule.column || "(unknown column)"}</option>
                   )}
                   {headers.map((h) => (
                     <option key={h} value={h}>

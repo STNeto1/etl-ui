@@ -1,7 +1,11 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
-import type { AppNode, UnnestArrayNode as UnnestArrayNodeType, UnnestArrayNodeData } from "../types/flow";
+import type {
+  AppNode,
+  UnnestArrayNode as UnnestArrayNodeType,
+  UnnestArrayNodeData,
+} from "../types/flow";
 
 export function UnnestArrayNode({ id, data }: NodeProps<UnnestArrayNodeType>) {
   const { setNodes } = useReactFlow();
@@ -47,7 +51,9 @@ export function UnnestArrayNode({ id, data }: NodeProps<UnnestArrayNodeType>) {
         <div>
           <label className="block text-[11px] font-medium text-neutral-700">Array column</label>
           {incoming.length === 0 || headers.length === 0 ? (
-            <p className="mt-1 text-[10px] text-neutral-500">Connect upstream data to pick a column.</p>
+            <p className="mt-1 text-[10px] text-neutral-500">
+              Connect upstream data to pick a column.
+            </p>
           ) : (
             <select
               value={column}

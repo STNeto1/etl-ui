@@ -41,7 +41,9 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
 
   const toggleIdColumn = useCallback(
     (key: string) => {
-      const next = idColumns.includes(key) ? idColumns.filter((k) => k !== key) : [...idColumns, key];
+      const next = idColumns.includes(key)
+        ? idColumns.filter((k) => k !== key)
+        : [...idColumns, key];
       patchData({ idColumns: next });
     },
     [idColumns, patchData],
@@ -86,8 +88,8 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
         Pivot / Unpivot
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Unpivot: keep id columns, melt the rest into name/value pairs. Pivot: group by index columns;
-        duplicate keys in a group use the last row.
+        Unpivot: keep id columns, melt the rest into name/value pairs. Pivot: group by index
+        columns; duplicate keys in a group use the last row.
       </p>
 
       <div
@@ -107,7 +109,9 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
         </div>
 
         {incoming.length === 0 || headers.length === 0 ? (
-          <p className="text-[11px] text-neutral-500">Connect upstream data to configure columns.</p>
+          <p className="text-[11px] text-neutral-500">
+            Connect upstream data to configure columns.
+          </p>
         ) : mode === "unpivot" ? (
           <>
             <div>
@@ -129,7 +133,9 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-medium text-neutral-700">Name column</label>
+                <label className="block text-[10px] font-medium text-neutral-700">
+                  Name column
+                </label>
                 <input
                   type="text"
                   className="mt-0.5 w-full rounded border border-neutral-300 bg-white px-1 py-0.5 text-[11px]"
@@ -139,7 +145,9 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-medium text-neutral-700">Value column</label>
+                <label className="block text-[10px] font-medium text-neutral-700">
+                  Value column
+                </label>
                 <input
                   type="text"
                   className="mt-0.5 w-full rounded border border-neutral-300 bg-white px-1 py-0.5 text-[11px]"
@@ -153,7 +161,9 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
         ) : (
           <>
             <div>
-              <div className="text-[11px] font-medium text-neutral-700">Index columns (group keys)</div>
+              <div className="text-[11px] font-medium text-neutral-700">
+                Index columns (group keys)
+              </div>
               <div className="mt-1 max-h-24 overflow-auto rounded border border-neutral-200 bg-neutral-50 p-1.5">
                 {headers.map((header) => (
                   <label key={header} className="flex items-center gap-2 py-0.5 text-[11px]">
@@ -185,7 +195,9 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
               </select>
             </div>
             <div>
-              <label className="block text-[11px] font-medium text-neutral-700">Values column</label>
+              <label className="block text-[11px] font-medium text-neutral-700">
+                Values column
+              </label>
               <select
                 className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px]"
                 value={valuesColumn}

@@ -2,7 +2,12 @@ import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import { inferColumnTypes } from "./inferCsvColumnTypes";
-import type { AppNode, CastColumnRule, CastColumnsNode as CastColumnsNodeType, CastTarget } from "../types/flow";
+import type {
+  AppNode,
+  CastColumnRule,
+  CastColumnsNode as CastColumnsNodeType,
+  CastTarget,
+} from "../types/flow";
 
 const CAST_TARGETS: { value: CastTarget; label: string }[] = [
   { value: "string", label: "String" },
@@ -66,10 +71,12 @@ export function CastColumnsNode({ id, data }: NodeProps<CastColumnsNodeType>) {
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Cast</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Cast
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Coerce cell strings. Boolean: true/false/yes/no, or numbers (0 → false, other finite → true).
-        Invalid values become empty. Later rows override the same column.
+        Coerce cell strings. Boolean: true/false/yes/no, or numbers (0 → false, other finite →
+        true). Invalid values become empty. Later rows override the same column.
       </p>
 
       {incoming.length === 0 ? (

@@ -44,7 +44,10 @@ function deserializeWorkspaceIndex(raw: unknown): WorkspaceIndex | null {
     if (!isRecord(entry)) return null;
     const id = typeof entry.id === "string" ? entry.id : null;
     const name = typeof entry.name === "string" ? entry.name : null;
-    const updatedAt = typeof entry.updatedAt === "number" && Number.isFinite(entry.updatedAt) ? entry.updatedAt : null;
+    const updatedAt =
+      typeof entry.updatedAt === "number" && Number.isFinite(entry.updatedAt)
+        ? entry.updatedAt
+        : null;
     if (id == null || id === INDEX_KEY || name == null || updatedAt == null) return null;
     items.push({ id, name, updatedAt });
   }
@@ -150,7 +153,9 @@ export async function loadWorkspaceIndex(): Promise<WorkspaceIndex | null> {
   }
 }
 
-export async function loadWorkspaceSnapshot(workspaceId: string): Promise<WorkspaceSnapshot | null> {
+export async function loadWorkspaceSnapshot(
+  workspaceId: string,
+): Promise<WorkspaceSnapshot | null> {
   if (workspaceId === INDEX_KEY) return null;
   try {
     const db = await openDatabase();
@@ -210,7 +215,9 @@ function nextDefaultWorkspaceName(items: WorkspaceIndexItem[]): string {
   return `Workspace ${items.length + 1}`;
 }
 
-export async function createWorkspace(name?: string): Promise<{ id: string; index: WorkspaceIndex } | null> {
+export async function createWorkspace(
+  name?: string,
+): Promise<{ id: string; index: WorkspaceIndex } | null> {
   try {
     const db = await openDatabase();
     if (db == null) return null;
@@ -242,7 +249,10 @@ export async function createWorkspace(name?: string): Promise<{ id: string; inde
   }
 }
 
-export async function renameWorkspace(workspaceId: string, name: string): Promise<WorkspaceIndex | null> {
+export async function renameWorkspace(
+  workspaceId: string,
+  name: string,
+): Promise<WorkspaceIndex | null> {
   const trimmed = name.trim();
   if (trimmed.length === 0) return null;
   try {

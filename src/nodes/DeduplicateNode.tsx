@@ -41,9 +41,7 @@ export function DeduplicateNode({ id, data }: NodeProps<DeduplicateNodeType>) {
   const toggleKey = useCallback(
     (key: string) => {
       const existing = data.dedupeKeys ?? [];
-      const next = existing.includes(key)
-        ? existing.filter((k) => k !== key)
-        : [...existing, key];
+      const next = existing.includes(key) ? existing.filter((k) => k !== key) : [...existing, key];
       patchData({ dedupeKeys: next });
     },
     [data.dedupeKeys, patchData],
@@ -59,7 +57,8 @@ export function DeduplicateNode({ id, data }: NodeProps<DeduplicateNodeType>) {
         Deduplicate
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        First matching row is kept. Use full row or pick key columns (same behavior as merge dedupe).
+        First matching row is kept. Use full row or pick key columns (same behavior as merge
+        dedupe).
       </p>
 
       <div

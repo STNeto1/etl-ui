@@ -14,15 +14,15 @@ export function switchBranchSourceHandle(branchId: string): string {
   return `${BRANCH_PREFIX}${branchId}`;
 }
 
-export type ParsedSwitchSourceHandle =
-  | { kind: "default" }
-  | { kind: "branch"; branchId: string };
+export type ParsedSwitchSourceHandle = { kind: "default" } | { kind: "branch"; branchId: string };
 
 /**
  * Maps an edge's `sourceHandle` from a Switch node to default vs named branch.
  * Unknown/null values fall back to default so legacy edges stay usable.
  */
-export function parseSwitchSourceHandle(handle: string | null | undefined): ParsedSwitchSourceHandle {
+export function parseSwitchSourceHandle(
+  handle: string | null | undefined,
+): ParsedSwitchSourceHandle {
   if (
     handle == null ||
     handle === "" ||

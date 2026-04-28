@@ -8,7 +8,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function extractArrayAtJsonPath(data: unknown, path: string): { array: unknown[] } | { error: string } {
+function extractArrayAtJsonPath(
+  data: unknown,
+  path: string,
+): { array: unknown[] } | { error: string } {
   const segments = path
     .split(".")
     .map((s) => s.trim())
@@ -84,7 +87,9 @@ export function parseJsonArrayToCsvPayload(
   return objectsArrayToCsvPayload(extracted.array);
 }
 
-export function parseNdjsonLinesToCsvPayload(text: string): { csv: CsvPayload } | { error: string } {
+export function parseNdjsonLinesToCsvPayload(
+  text: string,
+): { csv: CsvPayload } | { error: string } {
   const lines = text
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -105,9 +110,11 @@ export function parseNdjsonLinesToCsvPayload(text: string): { csv: CsvPayload } 
   return objectsArrayToCsvPayload(objects);
 }
 
-function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>): {
-  csv: CsvPayload;
-} | { error: string } {
+function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>):
+  | {
+      csv: CsvPayload;
+    }
+  | { error: string } {
   if (result.errors.length > 0) {
     return { error: result.errors.map((e) => e.message).join("; ") };
   }
@@ -306,11 +313,7 @@ export async function fetchToCsvPayload(
           status: res.status,
           contentType,
         };
-        if (
-          method === "GET" &&
-          res.status === 429 &&
-          attempt < maxAttempts - 1
-        ) {
+        if (method === "GET" && res.status === 429 && attempt < maxAttempts - 1) {
           const wait = parseRetryAfterMs(res) ?? 1000;
           window.clearTimeout(timeoutId);
           await delay(wait);

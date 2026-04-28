@@ -76,9 +76,7 @@ describe("evaluateComputeExpression", () => {
 
 describe("applyComputeRow", () => {
   it("appends new headers and preserves input order", () => {
-    const defs: ComputeColumnDef[] = [
-      { id: "1", outputName: "full", expression: "{{a}} {{b}}" },
-    ];
+    const defs: ComputeColumnDef[] = [{ id: "1", outputName: "full", expression: "{{a}} {{b}}" }];
     const { row, headers } = applyComputeRow({ a: "A", b: "B" }, ["a", "b"], defs);
     expect(row).toEqual({ a: "A", b: "B", full: "A B" });
     expect(headers).toEqual(["a", "b", "full"]);

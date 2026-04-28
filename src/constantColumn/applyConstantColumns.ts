@@ -9,7 +9,10 @@ export type ConstantColumnInput = {
  * Applies constant columns in order. Empty `columnName` after trim is skipped.
  * New names are appended to headers; existing header names get cells overwritten.
  */
-export function applyConstantColumns(csv: CsvPayload, constants: ConstantColumnInput[]): CsvPayload {
+export function applyConstantColumns(
+  csv: CsvPayload,
+  constants: ConstantColumnInput[],
+): CsvPayload {
   if (constants.length === 0) {
     return { headers: [...csv.headers], rows: csv.rows.map((r) => ({ ...r })) };
   }

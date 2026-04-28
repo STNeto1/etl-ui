@@ -75,8 +75,8 @@ export function ConstantColumnNode({ id, data }: NodeProps<ConstantColumnNodeTyp
         Constant column
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Same value on every row. New names are appended; existing headers get overwritten. Later rows
-        win on duplicate names.
+        Same value on every row. New names are appended; existing headers get overwritten. Later
+        rows win on duplicate names.
       </p>
 
       {incoming.length === 0 ? (
@@ -92,7 +92,9 @@ export function ConstantColumnNode({ id, data }: NodeProps<ConstantColumnNodeTyp
           onPointerDownCapture={(e) => e.stopPropagation()}
         >
           {constants.length === 0 && (
-            <p className="text-[11px] text-neutral-500">No constants yet — pass-through unchanged.</p>
+            <p className="text-[11px] text-neutral-500">
+              No constants yet — pass-through unchanged.
+            </p>
           )}
           {constants.map((row) => {
             const name = row.columnName.trim();
@@ -125,7 +127,9 @@ export function ConstantColumnNode({ id, data }: NodeProps<ConstantColumnNodeTyp
                 >
                   Remove
                 </button>
-                {dup ? <span className="w-full text-[10px] text-amber-600">Duplicate name</span> : null}
+                {dup ? (
+                  <span className="w-full text-[10px] text-amber-600">Duplicate name</span>
+                ) : null}
               </div>
             );
           })}

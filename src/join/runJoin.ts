@@ -24,9 +24,7 @@ function rowMatches(
   rightRow: Record<string, string>,
   keyPairs: JoinKeyPair[],
 ): boolean {
-  return keyPairs.every(
-    (p) => (leftRow[p.leftColumn] ?? "") === (rightRow[p.rightColumn] ?? ""),
-  );
+  return keyPairs.every((p) => (leftRow[p.leftColumn] ?? "") === (rightRow[p.rightColumn] ?? ""));
 }
 
 /**

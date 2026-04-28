@@ -3,7 +3,12 @@ import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } fr
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
-import type { AppNode, SwitchBranch, SwitchNode as SwitchNodeType, SwitchNodeData } from "../types/flow";
+import type {
+  AppNode,
+  SwitchBranch,
+  SwitchNode as SwitchNodeType,
+  SwitchNodeData,
+} from "../types/flow";
 
 export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
   const { setNodes } = useReactFlow();
@@ -22,7 +27,9 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
     (patch: Partial<SwitchNodeData>) => {
       setNodes((nodeSnapshot) =>
         nodeSnapshot.map((node) =>
-          node.id === id && node.type === "switch" ? { ...node, data: { ...node.data, ...patch } } : node,
+          node.id === id && node.type === "switch"
+            ? { ...node, data: { ...node.data, ...patch } }
+            : node,
         ),
       );
     },
@@ -61,7 +68,9 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
   const patchBranch = useCallback(
     (branchId: string, patch: Partial<SwitchBranch>) => {
       patchData({
-        branches: branches.map((branch) => (branch.id === branchId ? { ...branch, ...patch } : branch)),
+        branches: branches.map((branch) =>
+          branch.id === branchId ? { ...branch, ...patch } : branch,
+        ),
       });
     },
     [branches, patchData],
@@ -70,10 +79,12 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
   return (
     <div className="min-w-[320px] max-w-[460px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Switch</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Switch
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Rows matching any branch rule set are emitted on that branch (multi-match). Rows matching no branch go to
-        Default.
+        Rows matching any branch rule set are emitted on that branch (multi-match). Rows matching no
+        branch go to Default.
       </p>
 
       {incoming.length === 0 ? (
@@ -96,7 +107,9 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
           onPointerDownCapture={(event) => event.stopPropagation()}
         >
           <div className="flex items-center justify-between rounded border border-neutral-200 bg-neutral-50/90 px-2 py-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">Branches</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">
+              Branches
+            </span>
             <button
               type="button"
               onClick={addBranch}
@@ -113,7 +126,9 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
           ) : (
             <ul className="flex max-h-[280px] flex-col gap-2 overflow-y-auto pr-0.5">
               {branches.map((branch, index) => {
-                const invalidRuleCount = (branch.rules ?? []).filter((rule) => !headers.includes(rule.column)).length;
+                const invalidRuleCount = (branch.rules ?? []).filter(
+                  (rule) => !headers.includes(rule.column),
+                ).length;
                 return (
                   <li
                     key={branch.id}
@@ -158,8 +173,8 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
                     />
                     {invalidRuleCount > 0 && (
                       <p className="mt-1 text-[10px] text-amber-700">
-                        {invalidRuleCount} rule{invalidRuleCount === 1 ? "" : "s"} reference columns not in the current
-                        schema—they are ignored.
+                        {invalidRuleCount} rule{invalidRuleCount === 1 ? "" : "s"} reference columns
+                        not in the current schema—they are ignored.
                       </p>
                     )}
                     <Handle
@@ -177,7 +192,9 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
 
           <div className="relative rounded border border-dashed border-neutral-300 bg-neutral-50 px-2 py-2 pr-8">
             <div className="text-[11px] font-medium text-neutral-700">Default</div>
-            <p className="mt-0.5 text-[10px] text-neutral-500">Rows that match no branch exit here.</p>
+            <p className="mt-0.5 text-[10px] text-neutral-500">
+              Rows that match no branch exit here.
+            </p>
             <Handle
               type="source"
               position={Position.Right}

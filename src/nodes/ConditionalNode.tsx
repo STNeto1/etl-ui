@@ -3,7 +3,11 @@ import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } fr
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { getTabularOutputForEdge } from "../graph/tabularOutput";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
-import type { AppNode, ConditionalNode as ConditionalNodeType, ConditionalNodeData } from "../types/flow";
+import type {
+  AppNode,
+  ConditionalNode as ConditionalNodeType,
+  ConditionalNodeData,
+} from "../types/flow";
 
 export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
   const { setNodes } = useReactFlow();

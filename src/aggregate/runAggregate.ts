@@ -8,7 +8,9 @@ function parseFiniteNumber(cell: string): number | null {
 }
 
 function isAggregateOp(value: unknown): value is AggregateMetricOp {
-  return value === "count" || value === "sum" || value === "avg" || value === "min" || value === "max";
+  return (
+    value === "count" || value === "sum" || value === "avg" || value === "min" || value === "max"
+  );
 }
 
 type GroupBucket = {

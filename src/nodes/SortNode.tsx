@@ -25,7 +25,9 @@ export function SortNode({ id, data }: NodeProps<SortNodeType>) {
     (patch: Partial<SortNodeData>) => {
       setNodes((nodeSnapshot) =>
         nodeSnapshot.map((node) =>
-          node.id === id && node.type === "sort" ? { ...node, data: { ...node.data, ...patch } } : node,
+          node.id === id && node.type === "sort"
+            ? { ...node, data: { ...node.data, ...patch } }
+            : node,
         ),
       );
     },
@@ -74,7 +76,9 @@ export function SortNode({ id, data }: NodeProps<SortNodeType>) {
   return (
     <div className="min-w-[300px] max-w-[430px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
-      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">Sort</div>
+      <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Sort
+      </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
         Order rows by multiple keys in priority order. Empty values are always last.
       </p>
@@ -112,11 +116,16 @@ export function SortNode({ id, data }: NodeProps<SortNodeType>) {
           </div>
 
           {keys.length === 0 ? (
-            <p className="mt-1 text-[10px] text-neutral-500">No sort keys. Row order is unchanged.</p>
+            <p className="mt-1 text-[10px] text-neutral-500">
+              No sort keys. Row order is unchanged.
+            </p>
           ) : (
             <ul className="mt-1 flex max-h-[170px] flex-col gap-1 overflow-y-auto pr-0.5">
               {keys.map((key, index) => (
-                <li key={`${key.column}-${index}`} className="rounded border border-neutral-200 bg-white px-1.5 py-1">
+                <li
+                  key={`${key.column}-${index}`}
+                  className="rounded border border-neutral-200 bg-white px-1.5 py-1"
+                >
                   <div className="flex items-center gap-1">
                     <select
                       value={key.column}
