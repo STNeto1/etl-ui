@@ -4,7 +4,6 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
-  type Node,
   type Edge,
   type NodeChange,
   type EdgeChange,
@@ -14,19 +13,29 @@ import {
   Controls,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { CsvSourceNode } from "./nodes/CsvSourceNode";
+import type { AppNode } from "./types/flow";
+import { defaultCsvSourceData } from "./types/flow";
 
-const initialNodes = [
-  { id: "n1", position: { x: 0, y: 0 }, data: { label: "Node 1" } },
-  { id: "n2", position: { x: 0, y: 100 }, data: { label: "Node 2" } },
+const nodeTypes = { csvSource: CsvSourceNode };
+
+const initialNodes: AppNode[] = [
+  {
+    id: "csv-source",
+    type: "csvSource",
+    position: { x: 0, y: 0 },
+    data: defaultCsvSourceData(),
+  },
 ];
-const initialEdges = [{ id: "n1-n2", source: "n1", target: "n2" }];
+
+const initialEdges: Edge[] = [];
 
 export default function App() {
-  const [nodes, setNodes] = useState<Node[]>(initialNodes);
+  const [nodes, setNodes] = useState<AppNode[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange<Node>[]) =>
+    (changes: NodeChange<AppNode>[]) =>
       setNodes((nodesSnapshot) => applyNodeChanges(changes, nodesSnapshot)),
     [],
   );
@@ -45,6 +54,7 @@ export default function App() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
