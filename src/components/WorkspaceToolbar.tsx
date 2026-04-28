@@ -52,7 +52,7 @@ export function WorkspaceToolbar({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="pointer-events-auto absolute right-2 top-2 z-10 flex max-w-[min(100%,32rem)] flex-col items-end gap-1.5">
+    <div className="pointer-events-auto absolute right-2 top-2 z-10 flex max-w-[min(100%,40rem)] flex-col items-end gap-1.5">
       <div className="flex flex-wrap justify-end gap-1">
         <label className="flex items-center gap-1 rounded border border-neutral-300 bg-white/95 px-2 py-1 text-[11px] text-neutral-800 shadow-sm">
           <span className="whitespace-nowrap">Workspace</span>
@@ -68,49 +68,51 @@ export function WorkspaceToolbar({
             ))}
           </select>
         </label>
-        <button type="button" className={btnClass} onClick={() => void onNewWorkspace()}>
-          New
-        </button>
-        <button type="button" className={btnClass} onClick={onRenameWorkspace}>
-          Rename
-        </button>
-        <button
-          type="button"
-          className={btnClass}
-          disabled={!canDelete}
-          onClick={() => void onDeleteWorkspace()}
-        >
-          Delete
-        </button>
-        <button type="button" className={btnClass} onClick={onExportWorkspace}>
-          Export
-        </button>
-        <button
-          type="button"
-          className={btnClass}
-          onClick={() => {
-            fileInputRef.current?.click();
-          }}
-        >
-          Import
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json,.json"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (file) onImportWorkspaceFile(file);
-          }}
-        />
-        <button type="button" className={btnClass} disabled={!canUndo} onClick={onUndo}>
-          Undo
-        </button>
-        <button type="button" className={btnClass} disabled={!canRedo} onClick={onRedo}>
-          Redo
-        </button>
+        <div className="flex min-w-0 max-w-full shrink-0 flex-nowrap items-center gap-1 overflow-x-auto">
+          <button type="button" className={btnClass} onClick={() => void onNewWorkspace()}>
+            New
+          </button>
+          <button type="button" className={btnClass} onClick={onRenameWorkspace}>
+            Rename
+          </button>
+          <button
+            type="button"
+            className={btnClass}
+            disabled={!canDelete}
+            onClick={() => void onDeleteWorkspace()}
+          >
+            Delete
+          </button>
+          <button type="button" className={btnClass} onClick={onExportWorkspace}>
+            Export
+          </button>
+          <button
+            type="button"
+            className={btnClass}
+            onClick={() => {
+              fileInputRef.current?.click();
+            }}
+          >
+            Import
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) onImportWorkspaceFile(file);
+            }}
+          />
+          <button type="button" className={btnClass} disabled={!canUndo} onClick={onUndo}>
+            Undo
+          </button>
+          <button type="button" className={btnClass} disabled={!canRedo} onClick={onRedo}>
+            Redo
+          </button>
+        </div>
       </div>
       <div className="flex flex-wrap justify-end gap-1">
         <label className="flex max-w-[min(100%,18rem)] items-center gap-1 rounded border border-neutral-300 bg-white/95 px-2 py-1 text-[11px] text-neutral-800 shadow-sm">
