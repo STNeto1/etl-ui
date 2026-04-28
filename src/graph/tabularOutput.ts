@@ -12,6 +12,8 @@ import { parseSwitchSourceHandle } from "../switch/branches";
 import { dedupeRows } from "../dedupe/dedupeRows";
 import { applyLimitSample } from "../limitSample/applyLimitSample";
 import { applyUnnestArrayColumn } from "../unnest/applyUnnestArrayColumn";
+import { applyConstantColumns } from "../constantColumn/applyConstantColumns";
+import { applyPivotUnpivot } from "../pivotUnpivot/applyPivotUnpivot";
 
 function visitKey(nodeId: string, branch: string | null): string {
   return `${nodeId}::${branch ?? "node"}`;
@@ -365,6 +367,34 @@ function resolveNodeOutput(
       const column = unnestNode.data.column ?? "";
       const primitiveOutputColumn = unnestNode.data.primitiveOutputColumn ?? "value";
       return applyUnnestArrayColumn(input, { column, primitiveOutputColumn });
+    }
+    case "constantColumn": {
+      const constNode = node as Extract<AppNode, { type: "constantColumn" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      const constants = (constNode.data.constants ?? []).map((c) => ({
+        columnName: c.columnName,
+        value: c.value,
+      }));
+      return applyConstantColumns(input, constants);
+    }
+    case "pivotUnpivot": {
+      const pivotNode = node as Extract<AppNode, { type: "pivotUnpivot" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+      return applyPivotUnpivot(input, {
+        mode: pivotNode.data.pivotUnpivotMode ?? "unpivot",
+        idColumns: pivotNode.data.idColumns ?? [],
+        nameColumn: pivotNode.data.nameColumn ?? "name",
+        valueColumn: pivotNode.data.valueColumn ?? "value",
+        indexColumns: pivotNode.data.indexColumns ?? [],
+        namesColumn: pivotNode.data.namesColumn ?? "",
+        valuesColumn: pivotNode.data.valuesColumn ?? "",
+      });
     }
     case "join": {
       const joinNode = node as Extract<AppNode, { type: "join" }>;

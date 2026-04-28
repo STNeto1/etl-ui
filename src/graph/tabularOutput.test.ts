@@ -220,6 +220,51 @@ function unnestArrayNode(
   };
 }
 
+function constantColumnNode(
+  id: string,
+  constants: Array<{ id: string; columnName: string; value: string }>,
+): AppNode {
+  return {
+    id,
+    type: "constantColumn",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Constant column",
+      constants,
+    },
+  };
+}
+
+function pivotUnpivotNode(
+  id: string,
+  overrides?: Partial<{
+    pivotUnpivotMode: "pivot" | "unpivot";
+    idColumns: string[];
+    nameColumn: string;
+    valueColumn: string;
+    indexColumns: string[];
+    namesColumn: string;
+    valuesColumn: string;
+  }>,
+): AppNode {
+  return {
+    id,
+    type: "pivotUnpivot",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Pivot / Unpivot",
+      pivotUnpivotMode: "unpivot",
+      idColumns: [],
+      nameColumn: "name",
+      valueColumn: "value",
+      indexColumns: [],
+      namesColumn: "",
+      valuesColumn: "",
+      ...overrides,
+    },
+  };
+}
+
 function sortNode(id: string, keys: Array<{ column: string; direction: "asc" | "desc" }>): AppNode {
   return {
     id,
@@ -1511,6 +1556,73 @@ describe("getTabularOutput unnestArray", () => {
         { id: "1", tag: "a" },
         { id: "1", tag: "b" },
       ],
+    });
+  });
+});
+
+describe("getTabularOutput constantColumn", () => {
+  it("adds constant columns from upstream", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id"],
+        rows: [{ id: "1" }],
+      }),
+      constantColumnNode("cc-1", [
+        { id: "c1", columnName: "source", value: "sistema_x" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+    expect(getTabularOutput("cc-1", nodes, edges)).toEqual({
+      headers: ["id", "source"],
+      rows: [{ id: "1", source: "sistema_x" }],
+    });
+  });
+});
+
+describe("getTabularOutput pivotUnpivot", () => {
+  it("unpivots via graph", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "a", "b"],
+        rows: [{ id: "x", a: "1", b: "2" }],
+      }),
+      pivotUnpivotNode("pv-1", {
+        pivotUnpivotMode: "unpivot",
+        idColumns: ["id"],
+        nameColumn: "k",
+        valueColumn: "v",
+      }),
+    ];
+    const edges = [edge("e1", "src-1", "pv-1")];
+    expect(getTabularOutput("pv-1", nodes, edges)).toEqual({
+      headers: ["id", "k", "v"],
+      rows: [
+        { id: "x", k: "a", v: "1" },
+        { id: "x", k: "b", v: "2" },
+      ],
+    });
+  });
+
+  it("pivots via graph", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "metric", "val"],
+        rows: [
+          { id: "1", metric: "x", val: "10" },
+          { id: "1", metric: "y", val: "20" },
+        ],
+      }),
+      pivotUnpivotNode("pv-1", {
+        pivotUnpivotMode: "pivot",
+        indexColumns: ["id"],
+        namesColumn: "metric",
+        valuesColumn: "val",
+      }),
+    ];
+    const edges = [edge("e1", "src-1", "pv-1")];
+    expect(getTabularOutput("pv-1", nodes, edges)).toEqual({
+      headers: ["id", "x", "y"],
+      rows: [{ id: "1", x: "10", y: "20" }],
     });
   });
 });

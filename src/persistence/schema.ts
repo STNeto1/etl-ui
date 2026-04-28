@@ -3,11 +3,13 @@ import type {
   AggregateMetricOp,
   AppNode,
   CastTarget,
+  ConstantColumnDef,
   CsvSourceData,
   FilterOp,
   HttpColumnRename,
   JoinKind,
   MergeUnionDedupeMode,
+  PivotUnpivotMode,
   SortDirection,
 } from "../types/flow";
 import {
@@ -16,6 +18,7 @@ import {
   defaultCastColumnsData,
   defaultComputeColumnData,
   defaultConditionalData,
+  defaultConstantColumnData,
   defaultCsvSourceData,
   defaultDownloadData,
   defaultDeduplicateData,
@@ -24,6 +27,7 @@ import {
   defaultJoinData,
   defaultLimitSampleData,
   defaultMergeUnionData,
+  defaultPivotUnpivotData,
   defaultRenameColumnsData,
   defaultSelectColumnsData,
   defaultSortData,
@@ -129,6 +133,26 @@ function sanitizeMergeMode(value: unknown): MergeUnionDedupeMode | null {
 
 function sanitizeLimitSampleMode(value: unknown): "first" | "random" | null {
   return value === "first" || value === "random" ? value : null;
+}
+
+function sanitizePivotUnpivotMode(value: unknown): PivotUnpivotMode | null {
+  return value === "pivot" || value === "unpivot" ? value : null;
+}
+
+function sanitizeConstantColumnDefs(value: unknown): ConstantColumnDef[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((row): row is Record<string, unknown> => isRecord(row))
+    .map((row) => {
+      const rowId = asString(row.id);
+      if (rowId == null) return null;
+      return {
+        id: rowId,
+        columnName: asString(row.columnName) ?? "",
+        value: asString(row.value) ?? "",
+      };
+    })
+    .filter((row): row is NonNullable<typeof row> => row != null);
 }
 
 function sanitizeJoinKind(value: unknown): JoinKind | null {
@@ -335,6 +359,38 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
         column: asString(data.column) ?? defaults.column,
         primitiveOutputColumn:
           asString(data.primitiveOutputColumn) ?? defaults.primitiveOutputColumn,
+      },
+    };
+  }
+
+  if (type === "constantColumn") {
+    const defaults = defaultConstantColumnData();
+    return {
+      id,
+      type: "constantColumn",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        constants: sanitizeConstantColumnDefs(data.constants),
+      },
+    };
+  }
+
+  if (type === "pivotUnpivot") {
+    const defaults = defaultPivotUnpivotData();
+    return {
+      id,
+      type: "pivotUnpivot",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        pivotUnpivotMode: sanitizePivotUnpivotMode(data.pivotUnpivotMode) ?? defaults.pivotUnpivotMode,
+        idColumns: asStringArray(data.idColumns),
+        nameColumn: asString(data.nameColumn) ?? defaults.nameColumn,
+        valueColumn: asString(data.valueColumn) ?? defaults.valueColumn,
+        indexColumns: asStringArray(data.indexColumns),
+        namesColumn: asString(data.namesColumn) ?? defaults.namesColumn,
+        valuesColumn: asString(data.valuesColumn) ?? defaults.valuesColumn,
       },
     };
   }

@@ -124,6 +124,40 @@ export type UnnestArrayNodeData = {
 
 export type UnnestArrayNode = Node<UnnestArrayNodeData, "unnestArray">;
 
+export type ConstantColumnDef = {
+  id: string;
+  columnName: string;
+  value: string;
+};
+
+export type ConstantColumnNodeData = {
+  label: string;
+  constants: ConstantColumnDef[];
+};
+
+export type ConstantColumnNode = Node<ConstantColumnNodeData, "constantColumn">;
+
+export type PivotUnpivotMode = "pivot" | "unpivot";
+
+export type PivotUnpivotNodeData = {
+  label: string;
+  pivotUnpivotMode: PivotUnpivotMode;
+  /** Unpivot: columns kept on each output row (order preserved). */
+  idColumns: string[];
+  /** Unpivot: output header for former column names. */
+  nameColumn: string;
+  /** Unpivot: output header for cell values. */
+  valueColumn: string;
+  /** Pivot: columns that define row groups. */
+  indexColumns: string[];
+  /** Pivot: column whose values become new headers. */
+  namesColumn: string;
+  /** Pivot: column whose values fill pivoted cells. */
+  valuesColumn: string;
+};
+
+export type PivotUnpivotNode = Node<PivotUnpivotNodeData, "pivotUnpivot">;
+
 export type JoinKind = "inner" | "left";
 
 export type JoinKeyPair = {
@@ -286,7 +320,9 @@ export type AppNode =
   | FillReplaceNode
   | DeduplicateNode
   | LimitSampleNode
-  | UnnestArrayNode;
+  | UnnestArrayNode
+  | ConstantColumnNode
+  | PivotUnpivotNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -306,7 +342,9 @@ export type PaletteNodeType =
   | "castColumns"
   | "fillReplace"
   | "limitSample"
-  | "unnestArray";
+  | "unnestArray"
+  | "constantColumn"
+  | "pivotUnpivot";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -402,6 +440,16 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Unnest array",
     description: "Explode a JSON array column into multiple rows",
   },
+  {
+    type: "constantColumn",
+    label: "Constant column",
+    description: "Append columns with the same fixed value on every row",
+  },
+  {
+    type: "pivotUnpivot",
+    label: "Pivot / Unpivot",
+    description: "Wide to long (unpivot) or long to wide (pivot); duplicate pivot keys last row wins",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -439,6 +487,22 @@ export const defaultUnnestArrayData = (): UnnestArrayNodeData => ({
   label: "Unnest array",
   column: "",
   primitiveOutputColumn: "value",
+});
+
+export const defaultConstantColumnData = (): ConstantColumnNodeData => ({
+  label: "Constant column",
+  constants: [],
+});
+
+export const defaultPivotUnpivotData = (): PivotUnpivotNodeData => ({
+  label: "Pivot / Unpivot",
+  pivotUnpivotMode: "unpivot",
+  idColumns: [],
+  nameColumn: "name",
+  valueColumn: "value",
+  indexColumns: [],
+  namesColumn: "",
+  valuesColumn: "",
 });
 
 export const defaultJoinData = (): JoinNodeData => ({
@@ -538,6 +602,8 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "castColumns" ||
     value === "fillReplace" ||
     value === "limitSample" ||
-    value === "unnestArray"
+    value === "unnestArray" ||
+    value === "constantColumn" ||
+    value === "pivotUnpivot"
   );
 }

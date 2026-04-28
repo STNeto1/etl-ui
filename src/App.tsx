@@ -35,6 +35,8 @@ import { FillReplaceNode } from "./nodes/FillReplaceNode";
 import { DeduplicateNode } from "./nodes/DeduplicateNode";
 import { LimitSampleNode } from "./nodes/LimitSampleNode";
 import { UnnestArrayNode } from "./nodes/UnnestArrayNode";
+import { ConstantColumnNode } from "./nodes/ConstantColumnNode";
+import { PivotUnpivotNode } from "./nodes/PivotUnpivotNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
@@ -57,6 +59,8 @@ import {
   defaultLimitSampleData,
   defaultUnnestArrayData,
   defaultVisualizationData,
+  defaultConstantColumnData,
+  defaultPivotUnpivotData,
   isPaletteNodeType,
 } from "./types/flow";
 import {
@@ -94,6 +98,8 @@ const nodeTypes = {
   deduplicate: DeduplicateNode,
   limitSample: LimitSampleNode,
   unnestArray: UnnestArrayNode,
+  constantColumn: ConstantColumnNode,
+  pivotUnpivot: PivotUnpivotNode,
 };
 
 const AUTOSAVE_DEBOUNCE_MS = 300;
@@ -463,6 +469,26 @@ function FlowWorkspace() {
             type: "unnestArray",
             position,
             data: defaultUnnestArrayData(),
+          },
+        ]);
+      } else if (nodeType === "constantColumn") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "constantColumn",
+            position,
+            data: defaultConstantColumnData(),
+          },
+        ]);
+      } else if (nodeType === "pivotUnpivot") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "pivotUnpivot",
+            position,
+            data: defaultPivotUnpivotData(),
           },
         ]);
       }
