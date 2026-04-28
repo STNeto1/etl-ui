@@ -145,8 +145,10 @@ describe("enhanceFetchErrorMessage", () => {
 });
 
 describe("fetchToCsvPayload", () => {
+  const originalFetch = globalThis.fetch;
+
   afterEach(() => {
-    vi.unstubAllGlobals();
+    globalThis.fetch = originalFetch;
   });
 
   it("rejects http URL when requireHttps is true", async () => {
@@ -155,30 +157,24 @@ describe("fetchToCsvPayload", () => {
   });
 
   it("returns error when response is not ok", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        headers: new Headers(),
-        text: async () => "gone",
-      }),
-    );
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: "Not Found",
+      headers: new Headers(),
+      text: async () => "gone",
+    }) as typeof fetch;
     const r = await fetchToCsvPayload("https://example.com/x", []);
     expect(r).toMatchObject({ ok: false, error: "HTTP 404 Not Found", status: 404 });
   });
 
   it("returns csv on success", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        status: 200,
-        headers: new Headers({ "Content-Type": "application/json" }),
-        text: async () => '[{"id":"1"}]',
-      }),
-    );
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "Content-Type": "application/json" }),
+      text: async () => '[{"id":"1"}]',
+    }) as typeof fetch;
     const r = await fetchToCsvPayload("https://example.com/data", []);
     expect(r.ok).toBe(true);
     if (r.ok) {

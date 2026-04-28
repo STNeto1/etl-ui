@@ -161,7 +161,6 @@ describe("workspaceStore", () => {
     const a = await createWorkspace("A");
     const b = await createWorkspace("B");
     expect(a && b).toBeTruthy();
-    const _idA = a!.id;
     const idB = b!.id;
     await setActiveWorkspaceId(idB);
     const after = await deleteWorkspace(idB);

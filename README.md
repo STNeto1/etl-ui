@@ -1,73 +1,32 @@
-# React + TypeScript + Vite
+# etl-ui
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Browser-based canvas for wiring CSV / HTTP sources through transforms (filter, join, aggregate, pivot, and others) and into visualizations or CSV download. Graphs and node settings are stored locally in **IndexedDB** (database name `etl-ui`).
 
-Currently, two official plugins are available:
+## Requirements
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- [Bun](https://bun.sh/) (lockfile is `bun.lock`)
 
-## React Compiler
+## Scripts
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Command | Description |
+| --- | --- |
+| `bun install` | Install dependencies |
+| `bun run dev` | Vite dev server with HMR |
+| `bun run build` | Typecheck and production build |
+| `bun run test` | Vitest suite |
+| `bun run lint` | Oxlint with autofix |
+| `bun run lint:check` | Oxlint without writes (CI) |
+| `bun run format` | Oxfmt |
+| `bun run preview` | Preview production build |
 
-## Expanding the ESLint configuration
+## Workspace files
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Use **Export** in the toolbar to download the current graph as JSON (same schema as persistence). **Import** replaces the active workspace graph after confirmation and saves to IndexedDB.
 
-```js
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
+## Keyboard shortcuts
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+When focus is not in an input or textarea: **⌘/Ctrl+Z** undo, **⇧⌘Z** / **Ctrl+Y** redo, **⌫** / **Delete** removes selected nodes and edges, **⌘0** / **Ctrl+0** or **F** fits the view.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+## CI
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from "eslint-plugin-react-x";
-import reactDom from "eslint-plugin-react-dom";
-
-export default defineConfig([
-  globalIgnores(["dist"]),
-  {
-    files: ["**/*.{ts,tsx}"],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs["recommended-typescript"],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ["./tsconfig.node.json", "./tsconfig.app.json"],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-]);
-```
+GitHub Actions runs install, `lint:check`, tests, and build on push and pull requests (see `.github/workflows/ci.yml`).

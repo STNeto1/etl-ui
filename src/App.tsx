@@ -14,6 +14,9 @@ import {
   BackgroundVariant,
   Controls,
 } from "@xyflow/react";
+import { buildWorkspaceExportFilename, downloadWorkspaceJson, parseWorkspaceJsonText } from "./persistence/workspaceFile";
+import { isTextEditingTarget } from "./workspace/isTextEditingTarget";
+import { useGraphHistory } from "./workspace/useGraphHistory";
 import "@xyflow/react/dist/style.css";
 import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
 import { WorkspaceToolbar } from "./components/WorkspaceToolbar";
@@ -112,7 +115,19 @@ function FlowWorkspace() {
   const [workspaceId, setWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [workspaceIndex, setWorkspaceIndex] = useState<WorkspaceIndex | null>(null);
   const [resetSourceToo, setResetSourceToo] = useState(false);
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const [importError, setImportError] = useState<string | null>(null);
+  const { screenToFlowPosition, fitView, deleteElements, getNodes, getEdges } = useReactFlow<
+    AppNode,
+    Edge
+  >();
+
+  const { undo, redo, clear: resetHistory, canUndo, canRedo } = useGraphHistory({
+    hydrated,
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -163,10 +178,12 @@ function FlowWorkspace() {
       if (freshIndex != null) setWorkspaceIndex(freshIndex);
       setWorkspaceId(nextId);
       if (snap != null) {
+        resetHistory({ nodes: snap.nodes, edges: snap.edges });
         setNodes(snap.nodes);
         setEdges(snap.edges);
       } else {
         const b = getBlankWorkspaceGraph();
+        resetHistory({ nodes: b.nodes, edges: b.edges });
         setNodes(b.nodes);
         setEdges(b.edges);
       }
@@ -174,7 +191,7 @@ function FlowWorkspace() {
         fitView({ duration: 200 });
       });
     },
-    [workspaceId, nodes, edges, fitView],
+    [workspaceId, nodes, edges, fitView, resetHistory],
   );
 
   const handleNewWorkspace = useCallback(async () => {
@@ -184,12 +201,13 @@ function FlowWorkspace() {
     setWorkspaceIndex(created.index);
     setWorkspaceId(created.id);
     const b = getBlankWorkspaceGraph();
+    resetHistory({ nodes: b.nodes, edges: b.edges });
     setNodes(b.nodes);
     setEdges(b.edges);
     queueMicrotask(() => {
       fitView({ duration: 200 });
     });
-  }, [workspaceId, nodes, edges, fitView]);
+  }, [workspaceId, nodes, edges, fitView, resetHistory]);
 
   const handleRenameWorkspace = useCallback(() => {
     if (workspaceIndex == null) return;
@@ -213,24 +231,113 @@ function FlowWorkspace() {
     setWorkspaceId(nextId);
     const snap = await loadWorkspaceSnapshot(nextId);
     if (snap != null) {
+      resetHistory({ nodes: snap.nodes, edges: snap.edges });
       setNodes(snap.nodes);
       setEdges(snap.edges);
     } else {
       const b = getBlankWorkspaceGraph();
+      resetHistory({ nodes: b.nodes, edges: b.edges });
       setNodes(b.nodes);
       setEdges(b.edges);
     }
     queueMicrotask(() => {
       fitView({ duration: 200 });
     });
-  }, [workspaceId, workspaceIndex]);
+  }, [workspaceId, workspaceIndex, resetHistory, fitView]);
 
   const handleResetGraph = useCallback(async () => {
     const next = resetGraph(nodes, edges, { resetSource: resetSourceToo });
+    resetHistory({ nodes: next.nodes, edges: next.edges });
     setNodes(next.nodes);
     setEdges(next.edges);
     await saveWorkspaceSnapshot(workspaceId, next.nodes, next.edges);
-  }, [nodes, edges, resetSourceToo, workspaceId]);
+  }, [nodes, edges, resetSourceToo, workspaceId, resetHistory]);
+
+  const handleExportWorkspace = useCallback(() => {
+    if (workspaceIndex == null) return;
+    const item = workspaceIndex.items.find((i) => i.id === workspaceId);
+    const name = item?.name ?? "workspace";
+    downloadWorkspaceJson(nodes, edges, buildWorkspaceExportFilename(name));
+  }, [workspaceIndex, workspaceId, nodes, edges]);
+
+  const handleImportWorkspaceFile = useCallback(
+    (file: File) => {
+      void (async () => {
+        let text: string;
+        try {
+          text = await file.text();
+        } catch {
+          setImportError("Could not read file.");
+          return;
+        }
+        const snap = parseWorkspaceJsonText(text);
+        if (snap == null) {
+          setImportError("Invalid or unsupported workspace JSON.");
+          return;
+        }
+        if (!window.confirm("Replace the current graph with the imported workspace?")) {
+          setImportError(null);
+          return;
+        }
+        resetHistory({ nodes: snap.nodes, edges: snap.edges });
+        setNodes(snap.nodes);
+        setEdges(snap.edges);
+        setImportError(null);
+        void saveWorkspaceSnapshot(workspaceId, snap.nodes, snap.edges);
+        queueMicrotask(() => {
+          fitView({ duration: 200 });
+        });
+      })();
+    },
+    [workspaceId, resetHistory, fitView],
+  );
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isTextEditingTarget(event.target)) return;
+      const mod = event.metaKey || event.ctrlKey;
+      if (mod && event.key === "z" && !event.shiftKey) {
+        event.preventDefault();
+        undo();
+        return;
+      }
+      if (mod && event.key === "z" && event.shiftKey) {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (mod && (event.key === "y" || event.key === "Y")) {
+        event.preventDefault();
+        redo();
+        return;
+      }
+      if (mod && event.key === "0") {
+        event.preventDefault();
+        void fitView({ duration: 200 });
+        return;
+      }
+      if (event.key === "f" || event.key === "F") {
+        if (mod) return;
+        event.preventDefault();
+        void fitView({ duration: 200 });
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        if (mod) return;
+        const selectedNodes = getNodes().filter((n) => n.selected);
+        const selectedEdges = getEdges().filter((edg) => edg.selected);
+        if (selectedNodes.length === 0 && selectedEdges.length === 0) return;
+        event.preventDefault();
+        void deleteElements({
+          nodes: selectedNodes.map((n) => ({ id: n.id })),
+          edges: selectedEdges.map((edg) => ({ id: edg.id })),
+        });
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hydrated, undo, redo, fitView, getNodes, getEdges, deleteElements]);
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {
@@ -507,6 +614,7 @@ function FlowWorkspace() {
             onDeleteWorkspace={() => void handleDeleteWorkspace()}
             onLoadDemo={() => {
               const snap = getDemoWorkspaceSnapshot();
+              resetHistory({ nodes: snap.nodes, edges: snap.edges });
               setNodes(snap.nodes);
               setEdges(snap.edges);
               queueMicrotask(() => {
@@ -516,6 +624,13 @@ function FlowWorkspace() {
             resetSourceToo={resetSourceToo}
             onResetSourceTooChange={setResetSourceToo}
             onResetGraph={() => void handleResetGraph()}
+            onExportWorkspace={handleExportWorkspace}
+            onImportWorkspaceFile={handleImportWorkspaceFile}
+            importError={importError}
+            onUndo={undo}
+            onRedo={redo}
+            canUndo={canUndo}
+            canRedo={canRedo}
           />
         ) : null}
         <div className="min-h-0 w-full flex-1">
