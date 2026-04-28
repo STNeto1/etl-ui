@@ -1,9 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, type DragEvent } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
+  useReactFlow,
   type Edge,
   type NodeChange,
   type EdgeChange,
@@ -13,11 +15,22 @@ import {
   Controls,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
 import { CsvSourceNode } from "./nodes/CsvSourceNode";
+import { VisualizationNode } from "./nodes/VisualizationNode";
 import type { AppNode } from "./types/flow";
-import { CSV_SOURCE_NODE_ID, defaultCsvSourceData } from "./types/flow";
+import {
+  CSV_SOURCE_NODE_ID,
+  DND_PALETTE_MIME,
+  defaultCsvSourceData,
+  defaultVisualizationData,
+  isPaletteNodeType,
+} from "./types/flow";
 
-const nodeTypes = { csvSource: CsvSourceNode };
+const nodeTypes = {
+  csvSource: CsvSourceNode,
+  visualization: VisualizationNode,
+};
 
 const initialNodes: AppNode[] = [
   {
@@ -30,9 +43,10 @@ const initialNodes: AppNode[] = [
 
 const initialEdges: Edge[] = [];
 
-export default function App() {
+function FlowWorkspace() {
   const [nodes, setNodes] = useState<AppNode[]>(initialNodes);
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  const { screenToFlowPosition } = useReactFlow();
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {
@@ -68,30 +82,85 @@ export default function App() {
       return next;
     });
   }, []);
+
   const onEdgesChange = useCallback(
     (changes: EdgeChange<Edge>[]) =>
       setEdges((edgesSnapshot) => applyEdgeChanges(changes, edgesSnapshot)),
     [],
   );
+
   const onConnect = useCallback(
     (params: Edge | Connection) => setEdges((edgesSnapshot) => addEdge(params, edgesSnapshot)),
     [],
   );
 
+  const onDragOver = useCallback((event: DragEvent) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  }, []);
+
+  const onDrop = useCallback(
+    (event: DragEvent) => {
+      event.preventDefault();
+      const raw = event.dataTransfer.getData(DND_PALETTE_MIME);
+      if (!raw) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw) as unknown;
+      } catch {
+        return;
+      }
+      if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) return;
+      const nodeType = (parsed as { type: unknown }).type;
+      if (!isPaletteNodeType(nodeType)) return;
+
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY });
+      const id = crypto.randomUUID();
+
+      if (nodeType === "visualization") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "visualization",
+            position,
+            data: defaultVisualizationData(),
+          },
+        ]);
+      }
+    },
+    [screenToFlowPosition],
+  );
+
   return (
-    <div style={{ width: "100vw", height: "100vh" }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        fitView
-      >
-        <Background color="#ccc" variant={BackgroundVariant.Dots} />
-        <Controls />
-      </ReactFlow>
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
+      <NodePaletteSidebar />
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onDragOver={onDragOver}
+          onDrop={onDrop}
+          fitView
+        >
+          <Background color="#ccc" variant={BackgroundVariant.Dots} />
+          <Controls />
+        </ReactFlow>
+      </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ReactFlowProvider>
+      <div className="flex h-screen w-screen overflow-hidden">
+        <FlowWorkspace />
+      </div>
+    </ReactFlowProvider>
   );
 }

@@ -20,7 +20,36 @@ export type CsvSourceData = {
 
 export type CsvSourceNode = Node<CsvSourceData, "csvSource">;
 
-export type AppNode = CsvSourceNode;
+export type VisualizationNodeData = {
+  label: string;
+};
+
+export type VisualizationNode = Node<VisualizationNodeData, "visualization">;
+
+export type AppNode = CsvSourceNode | VisualizationNode;
+
+/** Node types users can drag from the palette (CSV source is fixed on the canvas). */
+export type PaletteNodeType = "visualization";
+
+export type PaletteItem = {
+  type: PaletteNodeType;
+  label: string;
+  description?: string;
+};
+
+export const DND_PALETTE_MIME = "application/reactflow" as const;
+
+export const PALETTE_ITEMS: PaletteItem[] = [
+  {
+    type: "visualization",
+    label: "Visualization",
+    description: "Table preview from a CSV source",
+  },
+];
+
+export const defaultVisualizationData = (): VisualizationNodeData => ({
+  label: "Visualization",
+});
 
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
@@ -29,3 +58,7 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
   error: null,
   loadedAt: null,
 });
+
+export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
+  return value === "visualization";
+}
