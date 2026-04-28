@@ -44,10 +44,21 @@ export type VisualizationNodeData = {
 
 export type VisualizationNode = Node<VisualizationNodeData, "visualization">;
 
-export type AppNode = CsvSourceNode | FilterNode | VisualizationNode;
+export type MergeUnionDedupeMode = "fullRow" | "keyColumns";
+
+export type MergeUnionNodeData = {
+  label: string;
+  dedupeEnabled: boolean;
+  dedupeMode: MergeUnionDedupeMode;
+  dedupeKeys: string[];
+};
+
+export type MergeUnionNode = Node<MergeUnionNodeData, "mergeUnion">;
+
+export type AppNode = CsvSourceNode | FilterNode | VisualizationNode | MergeUnionNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
-export type PaletteNodeType = "visualization" | "filter";
+export type PaletteNodeType = "visualization" | "filter" | "mergeUnion";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -62,6 +73,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     type: "filter",
     label: "Filter",
     description: "Rules on columns from a connected CSV source",
+  },
+  {
+    type: "mergeUnion",
+    label: "Merge / Union",
+    description: "Append multiple upstream paths into one table",
   },
   {
     type: "visualization",
@@ -80,6 +96,13 @@ export const defaultVisualizationData = (): VisualizationNodeData => ({
   label: "Visualization",
 });
 
+export const defaultMergeUnionData = (): MergeUnionNodeData => ({
+  label: "Merge / Union",
+  dedupeEnabled: false,
+  dedupeMode: "fullRow",
+  dedupeKeys: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -89,5 +112,5 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
 });
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
-  return value === "visualization" || value === "filter";
+  return value === "visualization" || value === "filter" || value === "mergeUnion";
 }

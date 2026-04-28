@@ -18,6 +18,7 @@ import "@xyflow/react/dist/style.css";
 import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
 import { CsvSourceNode } from "./nodes/CsvSourceNode";
 import { FilterNode } from "./nodes/FilterNode";
+import { MergeUnionNode } from "./nodes/MergeUnionNode";
 import { VisualizationNode } from "./nodes/VisualizationNode";
 import type { AppNode } from "./types/flow";
 import {
@@ -25,6 +26,7 @@ import {
   DND_PALETTE_MIME,
   defaultCsvSourceData,
   defaultFilterData,
+  defaultMergeUnionData,
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
@@ -32,6 +34,7 @@ import {
 const nodeTypes = {
   csvSource: CsvSourceNode,
   filter: FilterNode,
+  mergeUnion: MergeUnionNode,
   visualization: VisualizationNode,
 };
 
@@ -128,6 +131,16 @@ function FlowWorkspace() {
             type: "filter",
             position,
             data: defaultFilterData(),
+          },
+        ]);
+      } else if (nodeType === "mergeUnion") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "mergeUnion",
+            position,
+            data: defaultMergeUnionData(),
           },
         ]);
       } else if (nodeType === "visualization") {
