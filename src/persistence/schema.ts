@@ -2,6 +2,7 @@ import type { Edge } from "@xyflow/react";
 import type { AppNode, FilterOp, MergeUnionDedupeMode, SortDirection } from "../types/flow";
 import {
   CSV_SOURCE_NODE_ID,
+  defaultComputeColumnData,
   defaultConditionalData,
   defaultCsvSourceData,
   defaultDownloadData,
@@ -278,6 +279,31 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       data: {
         label: asString(data.label) ?? defaults.label,
         branches,
+      },
+    };
+  }
+
+  if (type === "computeColumn") {
+    const defaults = defaultComputeColumnData();
+    const columns = Array.isArray(data.columns)
+      ? data.columns
+          .filter((col): col is Record<string, unknown> => isRecord(col))
+          .map((col) => {
+            const colId = asString(col.id);
+            const outputName = asString(col.outputName);
+            const expression = asString(col.expression);
+            if (colId == null || outputName == null || expression == null) return null;
+            return { id: colId, outputName, expression };
+          })
+          .filter((col): col is NonNullable<typeof col> => col != null)
+      : defaults.columns;
+    return {
+      id,
+      type: "computeColumn",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        columns,
       },
     };
   }

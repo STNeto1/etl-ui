@@ -108,6 +108,20 @@ export type SwitchNodeData = {
 
 export type SwitchNode = Node<SwitchNodeData, "switch">;
 
+export type ComputeColumnDef = {
+  id: string;
+  outputName: string;
+  /** Template with `{{Column Name}}` placeholders (exact header text). */
+  expression: string;
+};
+
+export type ComputeColumnNodeData = {
+  label: string;
+  columns: ComputeColumnDef[];
+};
+
+export type ComputeColumnNode = Node<ComputeColumnNodeData, "computeColumn">;
+
 export type AppNode =
   | CsvSourceNode
   | FilterNode
@@ -117,7 +131,8 @@ export type AppNode =
   | ConditionalNode
   | SelectColumnsNode
   | SortNode
-  | SwitchNode;
+  | SwitchNode
+  | ComputeColumnNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -128,7 +143,8 @@ export type PaletteNodeType =
   | "conditional"
   | "selectColumns"
   | "sort"
-  | "switch";
+  | "switch"
+  | "computeColumn";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -179,6 +195,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Switch",
     description: "Route rows to matching branches or default",
   },
+  {
+    type: "computeColumn",
+    label: "Compute column",
+    description: "Add columns with {{Header}} templates; numeric-only lines evaluate as + - * / ( )",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -225,6 +246,11 @@ export const defaultSwitchData = (): SwitchNodeData => ({
   branches: [],
 });
 
+export const defaultComputeColumnData = (): ComputeColumnNodeData => ({
+  label: "Compute column",
+  columns: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -242,6 +268,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "conditional" ||
     value === "selectColumns" ||
     value === "sort" ||
-    value === "switch"
+    value === "switch" ||
+    value === "computeColumn"
   );
 }

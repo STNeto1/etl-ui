@@ -1,4 +1,5 @@
 import type { Edge } from "@xyflow/react";
+import { applyComputeRow } from "../computeColumn/template";
 import type { AppNode, CsvPayload } from "../types/flow";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
@@ -133,6 +134,19 @@ function resolveNodeOutput(
         }
         return selectedRow;
       });
+      return { headers, rows };
+    }
+    case "computeColumn": {
+      const computeNode = node as Extract<AppNode, { type: "computeColumn" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+
+      const defs = computeNode.data.columns ?? [];
+      const sampleRow = input.rows[0] ?? {};
+      const { headers } = applyComputeRow(sampleRow, input.headers, defs);
+      const rows = input.rows.map((row) => applyComputeRow(row, input.headers, defs).row);
       return { headers, rows };
     }
     case "sort": {

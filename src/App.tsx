@@ -25,6 +25,7 @@ import { ConditionalNode } from "./nodes/ConditionalNode";
 import { SelectColumnsNode } from "./nodes/SelectColumnsNode";
 import { SortNode } from "./nodes/SortNode";
 import { SwitchNode } from "./nodes/SwitchNode";
+import { ComputeColumnNode } from "./nodes/ComputeColumnNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
@@ -37,6 +38,7 @@ import {
   defaultSelectColumnsData,
   defaultSortData,
   defaultSwitchData,
+  defaultComputeColumnData,
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
@@ -52,6 +54,7 @@ const nodeTypes = {
   selectColumns: SelectColumnsNode,
   sort: SortNode,
   switch: SwitchNode,
+  computeColumn: ComputeColumnNode,
 };
 
 const initialNodes: AppNode[] = [
@@ -243,6 +246,16 @@ function FlowWorkspace() {
             type: "switch",
             position,
             data: defaultSwitchData(),
+          },
+        ]);
+      } else if (nodeType === "computeColumn") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "computeColumn",
+            position,
+            data: defaultComputeColumnData(),
           },
         ]);
       }

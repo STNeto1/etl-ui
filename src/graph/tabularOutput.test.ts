@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
-import type { AppNode, CsvPayload, MergeUnionNode, SwitchBranch } from "../types/flow";
+import type { AppNode, ComputeColumnDef, CsvPayload, MergeUnionNode, SwitchBranch } from "../types/flow";
 import { getTabularOutput, getTabularOutputForEdge } from "./tabularOutput";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
@@ -114,6 +114,18 @@ function switchNode(id: string, branches: SwitchBranch[]): AppNode {
     data: {
       label: "Switch",
       branches,
+    },
+  };
+}
+
+function computeColumnNode(id: string, columns: ComputeColumnDef[]): AppNode {
+  return {
+    id,
+    type: "computeColumn",
+    position: { x: 300, y: 100 },
+    data: {
+      label: "Compute column",
+      columns,
     },
   };
 }
@@ -743,5 +755,122 @@ describe("getTabularOutput mergeUnion", () => {
       { id: "1", name: "Ada" },
       { id: "1", name: "Ada" },
     ]);
+  });
+});
+
+describe("getTabularOutput computeColumn", () => {
+  it("adds computed columns from templates", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["First Name", "Last Name"],
+        rows: [{ "First Name": "Ada", "Last Name": "Lovelace" }],
+      }),
+      computeColumnNode("cc-1", [
+        { id: "c1", outputName: "Full", expression: "{{First Name}} {{Last Name}}" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+
+    expect(getTabularOutput("cc-1", nodes, edges)).toEqual({
+      headers: ["First Name", "Last Name", "Full"],
+      rows: [{ "First Name": "Ada", "Last Name": "Lovelace", Full: "Ada Lovelace" }],
+    });
+  });
+
+  it("evaluates arithmetic in compute column definitions", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["qty", "price"],
+        rows: [
+          { qty: "2", price: "4" },
+          { qty: "3", price: "10" },
+        ],
+      }),
+      computeColumnNode("cc-1", [{ id: "1", outputName: "line", expression: "{{qty}}*{{price}}" }]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+
+    expect(getTabularOutput("cc-1", nodes, edges)).toEqual({
+      headers: ["qty", "price", "line"],
+      rows: [
+        { qty: "2", price: "4", line: "8" },
+        { qty: "3", price: "10", line: "30" },
+      ],
+    });
+  });
+
+  it("treats unknown placeholders as empty in compute column", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id"],
+        rows: [{ id: "1" }],
+      }),
+      computeColumnNode("cc-1", [{ id: "c1", outputName: "x", expression: "{{missing}}" }]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+
+    expect(getTabularOutput("cc-1", nodes, edges)?.rows).toEqual([{ id: "1", x: "" }]);
+  });
+
+  it("applies compute definitions in order for chained outputs", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["a"],
+        rows: [{ a: "x" }],
+      }),
+      computeColumnNode("cc-1", [
+        { id: "1", outputName: "step1", expression: "{{a}}" },
+        { id: "2", outputName: "step2", expression: "{{step1}}!" },
+      ]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+
+    expect(getTabularOutput("cc-1", nodes, edges)?.rows).toEqual([{ a: "x", step1: "x", step2: "x!" }]);
+  });
+
+  it("overwrites an existing column when outputName matches", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id"],
+        rows: [{ id: "1" }],
+      }),
+      computeColumnNode("cc-1", [{ id: "1", outputName: "id", expression: "v-{{id}}" }]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+
+    expect(getTabularOutput("cc-1", nodes, edges)).toEqual({
+      headers: ["id"],
+      rows: [{ id: "v-1" }],
+    });
+  });
+
+  it("supports CSV -> ComputeColumn -> Visualization", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [{ id: "1", name: "Ada" }],
+      }),
+      computeColumnNode("cc-1", [{ id: "1", outputName: "label", expression: "{{name}} ({{id}})" }]),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1"), edge("e2", "cc-1", "viz-1")];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([{ id: "1", name: "Ada", label: "Ada (1)" }]);
+  });
+
+  it("extends headers for compute column when there are zero rows", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id"],
+        rows: [],
+      }),
+      computeColumnNode("cc-1", [{ id: "1", outputName: "extra", expression: "{{id}}" }]),
+    ];
+    const edges = [edge("e1", "src-1", "cc-1")];
+
+    expect(getTabularOutput("cc-1", nodes, edges)).toEqual({
+      headers: ["id", "extra"],
+      rows: [],
+    });
   });
 });
