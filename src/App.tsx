@@ -16,6 +16,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
+import { WorkspaceToolbar } from "./components/WorkspaceToolbar";
 import { CsvSourceNode } from "./nodes/CsvSourceNode";
 import { FilterNode } from "./nodes/FilterNode";
 import { JoinNode } from "./nodes/JoinNode";
@@ -46,8 +47,21 @@ import {
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
-import { loadWorkspaceSnapshot, saveWorkspaceSnapshot } from "./persistence/workspaceStore";
+import {
+  createWorkspace,
+  DEFAULT_WORKSPACE_ID,
+  deleteWorkspace,
+  loadWorkspaceIndex,
+  loadWorkspaceSnapshot,
+  renameWorkspace,
+  saveWorkspaceSnapshot,
+  setActiveWorkspaceId,
+  WORKSPACE_INDEX_VERSION,
+  type WorkspaceIndex,
+} from "./persistence/workspaceStore";
+import { getBlankWorkspaceGraph } from "./workspace/blankWorkspace";
 import { getDemoWorkspaceSnapshot } from "./workspace/demoFlow";
+import { resetGraph } from "./workspace/resetGraph";
 
 const nodeTypes = {
   csvSource: CsvSourceNode,
@@ -64,33 +78,42 @@ const nodeTypes = {
   aggregate: AggregateNode,
 };
 
-const initialNodes: AppNode[] = [
-  {
-    id: CSV_SOURCE_NODE_ID,
-    type: "csvSource",
-    position: { x: 0, y: 0 },
-    data: defaultCsvSourceData(),
-  },
-];
-
-const initialEdges: Edge[] = [];
 const AUTOSAVE_DEBOUNCE_MS = 300;
 
 function FlowWorkspace() {
-  const [nodes, setNodes] = useState<AppNode[]>(initialNodes);
-  const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  const blank = getBlankWorkspaceGraph();
+  const [nodes, setNodes] = useState<AppNode[]>(blank.nodes);
+  const [edges, setEdges] = useState<Edge[]>(blank.edges);
   const [hydrated, setHydrated] = useState(false);
-  const { screenToFlowPosition } = useReactFlow();
+  const [workspaceId, setWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
+  const [workspaceIndex, setWorkspaceIndex] = useState<WorkspaceIndex | null>(null);
+  const [resetSourceToo, setResetSourceToo] = useState(false);
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const snapshot = await loadWorkspaceSnapshot();
+      let index = await loadWorkspaceIndex();
+      if (cancelled) return;
+      if (index == null) {
+        index = {
+          version: WORKSPACE_INDEX_VERSION,
+          activeId: DEFAULT_WORKSPACE_ID,
+          items: [{ id: DEFAULT_WORKSPACE_ID, name: "Workspace 1", updatedAt: Date.now() }],
+        };
+      }
+      const snapshot = await loadWorkspaceSnapshot(index.activeId);
       if (cancelled) return;
       if (snapshot != null) {
         setNodes(snapshot.nodes);
         setEdges(snapshot.edges);
+      } else {
+        const b = getBlankWorkspaceGraph();
+        setNodes(b.nodes);
+        setEdges(b.edges);
       }
+      setWorkspaceIndex(index);
+      setWorkspaceId(index.activeId);
       setHydrated(true);
     })();
     return () => {
@@ -101,10 +124,89 @@ function FlowWorkspace() {
   useEffect(() => {
     if (!hydrated) return;
     const timer = window.setTimeout(() => {
-      void saveWorkspaceSnapshot(nodes, edges);
+      void saveWorkspaceSnapshot(workspaceId, nodes, edges);
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [edges, hydrated, nodes]);
+  }, [edges, hydrated, nodes, workspaceId]);
+
+  const handleSelectWorkspace = useCallback(
+    async (nextId: string) => {
+      if (nextId === workspaceId) return;
+      await saveWorkspaceSnapshot(workspaceId, nodes, edges);
+      const idx = await setActiveWorkspaceId(nextId);
+      const snap = await loadWorkspaceSnapshot(nextId);
+      const freshIndex = idx ?? (await loadWorkspaceIndex());
+      if (freshIndex != null) setWorkspaceIndex(freshIndex);
+      setWorkspaceId(nextId);
+      if (snap != null) {
+        setNodes(snap.nodes);
+        setEdges(snap.edges);
+      } else {
+        const b = getBlankWorkspaceGraph();
+        setNodes(b.nodes);
+        setEdges(b.edges);
+      }
+      queueMicrotask(() => {
+        fitView({ duration: 200 });
+      });
+    },
+    [workspaceId, nodes, edges, fitView],
+  );
+
+  const handleNewWorkspace = useCallback(async () => {
+    await saveWorkspaceSnapshot(workspaceId, nodes, edges);
+    const created = await createWorkspace();
+    if (created == null) return;
+    setWorkspaceIndex(created.index);
+    setWorkspaceId(created.id);
+    const b = getBlankWorkspaceGraph();
+    setNodes(b.nodes);
+    setEdges(b.edges);
+    queueMicrotask(() => {
+      fitView({ duration: 200 });
+    });
+  }, [workspaceId, nodes, edges, fitView]);
+
+  const handleRenameWorkspace = useCallback(() => {
+    if (workspaceIndex == null) return;
+    const item = workspaceIndex.items.find((i) => i.id === workspaceId);
+    const current = item?.name ?? "";
+    const name = window.prompt("Workspace name", current);
+    if (name == null) return;
+    void (async () => {
+      const next = await renameWorkspace(workspaceId, name);
+      if (next != null) setWorkspaceIndex(next);
+    })();
+  }, [workspaceId, workspaceIndex]);
+
+  const handleDeleteWorkspace = useCallback(async () => {
+    if (workspaceIndex == null || workspaceIndex.items.length <= 1) return;
+    if (!window.confirm("Delete this workspace? This cannot be undone.")) return;
+    const next = await deleteWorkspace(workspaceId);
+    if (next == null) return;
+    setWorkspaceIndex(next);
+    const nextId = next.activeId;
+    setWorkspaceId(nextId);
+    const snap = await loadWorkspaceSnapshot(nextId);
+    if (snap != null) {
+      setNodes(snap.nodes);
+      setEdges(snap.edges);
+    } else {
+      const b = getBlankWorkspaceGraph();
+      setNodes(b.nodes);
+      setEdges(b.edges);
+    }
+    queueMicrotask(() => {
+      fitView({ duration: 200 });
+    });
+  }, [workspaceId, workspaceIndex]);
+
+  const handleResetGraph = useCallback(async () => {
+    const next = resetGraph(nodes, edges, { resetSource: resetSourceToo });
+    setNodes(next.nodes);
+    setEdges(next.edges);
+    await saveWorkspaceSnapshot(workspaceId, next.nodes, next.edges);
+  }, [nodes, edges, resetSourceToo, workspaceId]);
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {
@@ -294,19 +396,23 @@ function FlowWorkspace() {
     <div className="flex h-full min-h-0 w-full min-w-0 flex-1">
       <NodePaletteSidebar />
       <div className="relative min-h-0 min-w-0 flex-1">
-        <div className="pointer-events-auto absolute right-2 top-2 z-10">
-          <button
-            type="button"
-            onClick={() => {
+        {hydrated && workspaceIndex != null ? (
+          <WorkspaceToolbar
+            workspaceIndex={workspaceIndex}
+            onSelectWorkspace={(id) => void handleSelectWorkspace(id)}
+            onNewWorkspace={() => void handleNewWorkspace()}
+            onRenameWorkspace={handleRenameWorkspace}
+            onDeleteWorkspace={() => void handleDeleteWorkspace()}
+            onLoadDemo={() => {
               const snap = getDemoWorkspaceSnapshot();
               setNodes(snap.nodes);
               setEdges(snap.edges);
             }}
-            className="rounded border border-neutral-300 bg-white/95 px-2 py-1 text-[11px] font-medium text-neutral-800 shadow-sm hover:bg-neutral-50"
-          >
-            Load demo workspace
-          </button>
-        </div>
+            resetSourceToo={resetSourceToo}
+            onResetSourceTooChange={setResetSourceToo}
+            onResetGraph={() => void handleResetGraph()}
+          />
+        ) : null}
         <ReactFlow
           nodes={nodes}
           edges={edges}

@@ -2,14 +2,23 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import type { AppNode } from "../types/flow";
 import { defaultCsvSourceData } from "../types/flow";
-import { WORKSPACE_SCHEMA_VERSION } from "./schema";
+import { getBlankWorkspaceGraph } from "../workspace/blankWorkspace";
+import { serializeWorkspaceSnapshot, WORKSPACE_SCHEMA_VERSION } from "./schema";
 import {
+  createWorkspace,
+  DB_NAME,
+  DEFAULT_WORKSPACE_ID,
+  deleteWorkspace,
+  loadWorkspaceIndex,
   loadWorkspaceSnapshot,
+  renameWorkspace,
   saveWorkspaceSnapshot,
+  setActiveWorkspaceId,
   writeWorkspaceRawForTest,
+  writeWorkspaceSnapshotRawForTest,
 } from "./workspaceStore";
 
-const DB_NAME = "etl-ui";
+const STORE_NAME = "workspaces";
 
 function deleteTestDatabase(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -17,6 +26,30 @@ function deleteTestDatabase(): Promise<void> {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error ?? new Error("Failed to delete test database"));
     request.onblocked = () => resolve();
+  });
+}
+
+/** Seed a v1-shaped database (snapshot at `default`, no `__index__`). */
+function seedV1WithSnapshot(snapshot: unknown): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).put(snapshot, DEFAULT_WORKSPACE_ID);
+      tx.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      tx.onerror = () => reject(tx.error ?? new Error("tx failed"));
+    };
+    request.onerror = () => reject(request.error ?? new Error("open v1 failed"));
   });
 }
 
@@ -30,7 +63,7 @@ beforeEach(async () => {
 });
 
 describe("workspaceStore", () => {
-  it("saves and loads a workspace snapshot roundtrip", async () => {
+  it("saves and loads a workspace snapshot roundtrip for default id", async () => {
     const nodes: AppNode[] = [
       {
         id: "csv-source",
@@ -57,8 +90,8 @@ describe("workspaceStore", () => {
     ];
     const edges = [{ id: "e1", source: "csv-source", target: "viz-1" }];
 
-    await saveWorkspaceSnapshot(nodes, edges);
-    const loaded = await loadWorkspaceSnapshot();
+    await saveWorkspaceSnapshot(DEFAULT_WORKSPACE_ID, nodes, edges);
+    const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
 
     expect(loaded).not.toBeNull();
     expect(loaded?.nodes).toEqual(nodes);
@@ -70,6 +103,77 @@ describe("workspaceStore", () => {
       }),
     ]);
     expect(loaded?.version).toBe(WORKSPACE_SCHEMA_VERSION);
+
+    const idx = await loadWorkspaceIndex();
+    expect(idx?.activeId).toBeDefined();
+    expect(idx?.items.some((i) => i.id === DEFAULT_WORKSPACE_ID)).toBe(true);
+  });
+
+  it("migrates v1 default-only store into index + keeps snapshot", async () => {
+    const nodes: AppNode[] = [
+      {
+        id: "csv-source",
+        type: "csvSource",
+        position: { x: 1, y: 2 },
+        data: { ...defaultCsvSourceData(), fileName: "m.csv" },
+      },
+    ];
+    const snap = serializeWorkspaceSnapshot(nodes, []);
+    await seedV1WithSnapshot(snap);
+
+    const index = await loadWorkspaceIndex();
+    expect(index).not.toBeNull();
+    expect(index?.items.some((i) => i.id === DEFAULT_WORKSPACE_ID)).toBe(true);
+
+    const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
+    expect(loaded?.nodes).toEqual(nodes);
+  });
+
+  it("roundtrips a non-default workspace id", async () => {
+    const created = await createWorkspace("Second");
+    expect(created).not.toBeNull();
+    const wid = created!.id;
+    expect(created!.index.activeId).toBe(wid);
+
+    const nodes: AppNode[] = [
+      {
+        id: "csv-source",
+        type: "csvSource",
+        position: { x: 0, y: 0 },
+        data: { ...defaultCsvSourceData(), fileName: "only.csv" },
+      },
+    ];
+    await saveWorkspaceSnapshot(wid, nodes, []);
+    await setActiveWorkspaceId(DEFAULT_WORKSPACE_ID);
+
+    const loaded = await loadWorkspaceSnapshot(wid);
+    expect(loaded?.nodes).toEqual(nodes);
+  });
+
+  it("renameWorkspace updates display name", async () => {
+    const blank = getBlankWorkspaceGraph();
+    await saveWorkspaceSnapshot(DEFAULT_WORKSPACE_ID, blank.nodes, blank.edges);
+    const next = await renameWorkspace(DEFAULT_WORKSPACE_ID, "Renamed");
+    expect(next?.items.find((i) => i.id === DEFAULT_WORKSPACE_ID)?.name).toBe("Renamed");
+  });
+
+  it("deleteWorkspace removes id and reassigns active", async () => {
+    const a = await createWorkspace("A");
+    const b = await createWorkspace("B");
+    expect(a && b).toBeTruthy();
+    const idA = a!.id;
+    const idB = b!.id;
+    await setActiveWorkspaceId(idB);
+    const after = await deleteWorkspace(idB);
+    expect(after?.items.some((i) => i.id === idB)).toBe(false);
+    // Active falls back to the first remaining workspace in index order.
+    expect(after?.activeId).toBe(DEFAULT_WORKSPACE_ID);
+  });
+
+  it("deleteWorkspace returns null when only one workspace", async () => {
+    await loadWorkspaceIndex();
+    const only = await deleteWorkspace(DEFAULT_WORKSPACE_ID);
+    expect(only).toBeNull();
   });
 
   it("returns null for malformed snapshots", async () => {
@@ -80,7 +184,7 @@ describe("workspaceStore", () => {
       edges: [],
     });
 
-    const loaded = await loadWorkspaceSnapshot();
+    const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded).toBeNull();
   });
 
@@ -92,7 +196,7 @@ describe("workspaceStore", () => {
       edges: [],
     });
 
-    const loaded = await loadWorkspaceSnapshot();
+    const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded).toBeNull();
   });
 
@@ -111,10 +215,23 @@ describe("workspaceStore", () => {
       edges: [],
     });
 
-    const loaded = await loadWorkspaceSnapshot();
+    const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded).not.toBeNull();
     expect(loaded?.nodes.some((node) => node.id === "csv-source" && node.type === "csvSource")).toBe(
       true,
     );
+  });
+
+  it("writeWorkspaceSnapshotRawForTest targets arbitrary workspace key", async () => {
+    const created = await createWorkspace("X");
+    const wid = created!.id;
+    await writeWorkspaceSnapshotRawForTest(wid, {
+      version: WORKSPACE_SCHEMA_VERSION,
+      savedAt: 1,
+      nodes: [],
+      edges: "bad",
+    });
+    const loaded = await loadWorkspaceSnapshot(wid);
+    expect(loaded).toBeNull();
   });
 });
