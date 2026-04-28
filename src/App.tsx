@@ -25,6 +25,7 @@ import { ConditionalNode } from "./nodes/ConditionalNode";
 import { SelectColumnsNode } from "./nodes/SelectColumnsNode";
 import { SortNode } from "./nodes/SortNode";
 import { SwitchNode } from "./nodes/SwitchNode";
+import { AggregateNode } from "./nodes/AggregateNode";
 import { ComputeColumnNode } from "./nodes/ComputeColumnNode";
 import type { AppNode } from "./types/flow";
 import {
@@ -38,6 +39,7 @@ import {
   defaultSelectColumnsData,
   defaultSortData,
   defaultSwitchData,
+  defaultAggregateData,
   defaultComputeColumnData,
   defaultVisualizationData,
   isPaletteNodeType,
@@ -55,6 +57,7 @@ const nodeTypes = {
   sort: SortNode,
   switch: SwitchNode,
   computeColumn: ComputeColumnNode,
+  aggregate: AggregateNode,
 };
 
 const initialNodes: AppNode[] = [
@@ -256,6 +259,16 @@ function FlowWorkspace() {
             type: "computeColumn",
             position,
             data: defaultComputeColumnData(),
+          },
+        ]);
+      } else if (nodeType === "aggregate") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "aggregate",
+            position,
+            data: defaultAggregateData(),
           },
         ]);
       }

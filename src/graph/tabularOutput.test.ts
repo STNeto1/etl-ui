@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
-import type { AppNode, ComputeColumnDef, CsvPayload, MergeUnionNode, SwitchBranch } from "../types/flow";
+import type {
+  AggregateMetricDef,
+  AppNode,
+  ComputeColumnDef,
+  CsvPayload,
+  MergeUnionNode,
+  SwitchBranch,
+} from "../types/flow";
 import { getTabularOutput, getTabularOutputForEdge } from "./tabularOutput";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
@@ -126,6 +133,19 @@ function computeColumnNode(id: string, columns: ComputeColumnDef[]): AppNode {
     data: {
       label: "Compute column",
       columns,
+    },
+  };
+}
+
+function aggregateNode(id: string, groupKeys: string[], metrics: AggregateMetricDef[]): AppNode {
+  return {
+    id,
+    type: "aggregate",
+    position: { x: 310, y: 100 },
+    data: {
+      label: "Aggregate",
+      groupKeys,
+      metrics,
     },
   };
 }
@@ -872,5 +892,54 @@ describe("getTabularOutput computeColumn", () => {
       headers: ["id", "extra"],
       rows: [],
     });
+  });
+});
+
+describe("getTabularOutput aggregate", () => {
+  it("groups and sums through the graph", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["region", "amount"],
+        rows: [
+          { region: "E", amount: "10" },
+          { region: "W", amount: "5" },
+          { region: "E", amount: "3" },
+        ],
+      }),
+      aggregateNode("agg-1", ["region"], [{ id: "m1", outputName: "total", op: "sum", column: "amount" }]),
+    ];
+    const edges = [edge("e1", "src-1", "agg-1")];
+
+    expect(getTabularOutput("agg-1", nodes, edges)).toEqual({
+      headers: ["region", "total"],
+      rows: [
+        { region: "E", total: "13" },
+        { region: "W", total: "5" },
+      ],
+    });
+  });
+
+  it("supports CSV -> Aggregate -> Visualization", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["k", "v"],
+        rows: [
+          { k: "a", v: "1" },
+          { k: "a", v: "2" },
+          { k: "b", v: "4" },
+        ],
+      }),
+      aggregateNode("agg-1", ["k"], [
+        { id: "1", outputName: "n", op: "count" },
+        { id: "2", outputName: "s", op: "sum", column: "v" },
+      ]),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [edge("e1", "src-1", "agg-1"), edge("e2", "agg-1", "viz-1")];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
+      { k: "a", n: "2", s: "3" },
+      { k: "b", n: "1", s: "4" },
+    ]);
   });
 });

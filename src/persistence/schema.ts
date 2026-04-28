@@ -1,7 +1,8 @@
 import type { Edge } from "@xyflow/react";
-import type { AppNode, FilterOp, MergeUnionDedupeMode, SortDirection } from "../types/flow";
+import type { AggregateMetricOp, AppNode, FilterOp, MergeUnionDedupeMode, SortDirection } from "../types/flow";
 import {
   CSV_SOURCE_NODE_ID,
+  defaultAggregateData,
   defaultComputeColumnData,
   defaultConditionalData,
   defaultCsvSourceData,
@@ -79,6 +80,13 @@ function sanitizeMergeMode(value: unknown): MergeUnionDedupeMode | null {
 
 function sanitizeSortDirection(value: unknown): SortDirection | null {
   return value === "asc" || value === "desc" ? value : null;
+}
+
+function sanitizeAggregateOp(value: unknown): AggregateMetricOp | null {
+  if (value === "count" || value === "sum" || value === "avg" || value === "min" || value === "max") {
+    return value;
+  }
+  return null;
 }
 
 function sanitizeNode(rawNode: unknown): AppNode | null {
@@ -304,6 +312,38 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       data: {
         label: asString(data.label) ?? defaults.label,
         columns,
+      },
+    };
+  }
+
+  if (type === "aggregate") {
+    const defaults = defaultAggregateData();
+    const groupKeys = asStringArray(data.groupKeys);
+    const metrics = Array.isArray(data.metrics)
+      ? data.metrics
+          .filter((m): m is Record<string, unknown> => isRecord(m))
+          .map((m) => {
+            const metricId = asString(m.id);
+            const outputName = asString(m.outputName);
+            const op = sanitizeAggregateOp(m.op);
+            const column = asString(m.column);
+            if (metricId == null || outputName == null || op == null) return null;
+            if (op === "count") {
+              return { id: metricId, outputName, op, ...(column != null && column.length > 0 ? { column } : {}) };
+            }
+            if (column == null) return null;
+            return { id: metricId, outputName, op, column };
+          })
+          .filter((m): m is NonNullable<typeof m> => m != null)
+      : defaults.metrics;
+    return {
+      id,
+      type: "aggregate",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        groupKeys,
+        metrics,
       },
     };
   }

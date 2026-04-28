@@ -1,4 +1,5 @@
 import type { Edge } from "@xyflow/react";
+import { runAggregate } from "../aggregate/runAggregate";
 import { applyComputeRow } from "../computeColumn/template";
 import type { AppNode, CsvPayload } from "../types/flow";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
@@ -148,6 +149,17 @@ function resolveNodeOutput(
       const { headers } = applyComputeRow(sampleRow, input.headers, defs);
       const rows = input.rows.map((row) => applyComputeRow(row, input.headers, defs).row);
       return { headers, rows };
+    }
+    case "aggregate": {
+      const aggregateNode = node as Extract<AppNode, { type: "aggregate" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+
+      const groupKeys = aggregateNode.data.groupKeys ?? [];
+      const metrics = aggregateNode.data.metrics ?? [];
+      return runAggregate(input, groupKeys, metrics);
     }
     case "sort": {
       const sortNode = node as Extract<AppNode, { type: "sort" }>;

@@ -122,6 +122,24 @@ export type ComputeColumnNodeData = {
 
 export type ComputeColumnNode = Node<ComputeColumnNodeData, "computeColumn">;
 
+export type AggregateMetricOp = "count" | "sum" | "avg" | "min" | "max";
+
+export type AggregateMetricDef = {
+  id: string;
+  outputName: string;
+  op: AggregateMetricOp;
+  /** For count: optional — omit or empty counts rows; set to count non-blank cells. Required for sum/avg/min/max. */
+  column?: string;
+};
+
+export type AggregateNodeData = {
+  label: string;
+  groupKeys: string[];
+  metrics: AggregateMetricDef[];
+};
+
+export type AggregateNode = Node<AggregateNodeData, "aggregate">;
+
 export type AppNode =
   | CsvSourceNode
   | FilterNode
@@ -132,7 +150,8 @@ export type AppNode =
   | SelectColumnsNode
   | SortNode
   | SwitchNode
-  | ComputeColumnNode;
+  | ComputeColumnNode
+  | AggregateNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -144,7 +163,8 @@ export type PaletteNodeType =
   | "selectColumns"
   | "sort"
   | "switch"
-  | "computeColumn";
+  | "computeColumn"
+  | "aggregate";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -200,6 +220,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Compute column",
     description: "Add columns with {{Header}} templates; numeric-only lines evaluate as + - * / ( )",
   },
+  {
+    type: "aggregate",
+    label: "Aggregate",
+    description: "Group rows and compute count, sum, avg, min, max",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -251,6 +276,12 @@ export const defaultComputeColumnData = (): ComputeColumnNodeData => ({
   columns: [],
 });
 
+export const defaultAggregateData = (): AggregateNodeData => ({
+  label: "Aggregate",
+  groupKeys: [],
+  metrics: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -269,6 +300,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "selectColumns" ||
     value === "sort" ||
     value === "switch" ||
-    value === "computeColumn"
+    value === "computeColumn" ||
+    value === "aggregate"
   );
 }
