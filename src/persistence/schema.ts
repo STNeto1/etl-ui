@@ -9,6 +9,7 @@ import {
   defaultMergeUnionData,
   defaultSelectColumnsData,
   defaultSortData,
+  defaultSwitchData,
   defaultVisualizationData,
 } from "../types/flow";
 
@@ -236,6 +237,47 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
       data: {
         label: asString(data.label) ?? defaults.label,
         keys,
+      },
+    };
+  }
+
+  if (type === "switch") {
+    const defaults = defaultSwitchData();
+    const branches = Array.isArray(data.branches)
+      ? data.branches
+          .filter((branch): branch is Record<string, unknown> => isRecord(branch))
+          .map((branch) => {
+            const branchId = asString(branch.id);
+            if (branchId == null) return null;
+            const rules = Array.isArray(branch.rules)
+              ? branch.rules
+                  .filter((rule): rule is Record<string, unknown> => isRecord(rule))
+                  .map((rule) => {
+                    const idValue = asString(rule.id);
+                    const column = asString(rule.column);
+                    const op = sanitizeFilterOp(rule.op);
+                    const value = asString(rule.value);
+                    if (idValue == null || column == null || op == null || value == null) return null;
+                    return { id: idValue, column, op, value };
+                  })
+                  .filter((rule): rule is NonNullable<typeof rule> => rule != null)
+              : [];
+            return {
+              id: branchId,
+              label: asString(branch.label) ?? "Branch",
+              combineAll: asBoolean(branch.combineAll) ?? true,
+              rules,
+            };
+          })
+          .filter((branch): branch is NonNullable<typeof branch> => branch != null)
+      : defaults.branches;
+    return {
+      id,
+      type: "switch",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        branches,
       },
     };
   }

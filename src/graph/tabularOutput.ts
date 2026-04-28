@@ -2,6 +2,7 @@ import type { Edge } from "@xyflow/react";
 import type { AppNode, CsvPayload } from "../types/flow";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
+import { parseSwitchSourceHandle } from "../switch/branches";
 
 function visitKey(nodeId: string, branch: string | null): string {
   return `${nodeId}::${branch ?? "node"}`;
@@ -165,6 +166,43 @@ function resolveNodeOutput(
         .map((entry) => entry.row);
 
       return { headers: input.headers, rows };
+    }
+    case "switch": {
+      const switchNode = node as Extract<AppNode, { type: "switch" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+
+      const headers = input.headers;
+      const branches = switchNode.data.branches ?? [];
+      const matchedRowIndices = new Set<number>();
+      const rowsByBranchId = new Map<string, Record<string, string>[]>();
+
+      for (const branch of branches) {
+        const applicable = rulesApplicableToHeaders(branch.rules ?? [], headers);
+        const matchingRows: Record<string, string>[] = [];
+        input.rows.forEach((row, index) => {
+          if (rowPassesRules(row, applicable, branch.combineAll ?? true)) {
+            matchingRows.push(row);
+            matchedRowIndices.add(index);
+          }
+        });
+        rowsByBranchId.set(branch.id, matchingRows);
+      }
+
+      const parsed = parseSwitchSourceHandle(viaSourceHandle);
+      if (parsed.kind === "default") {
+        return {
+          headers,
+          rows: input.rows.filter((_, index) => !matchedRowIndices.has(index)),
+        };
+      }
+      const branchRows = rowsByBranchId.get(parsed.branchId);
+      return {
+        headers,
+        rows: branchRows ?? [],
+      };
     }
     case "conditional": {
       const conditionalNode = node as Extract<AppNode, { type: "conditional" }>;

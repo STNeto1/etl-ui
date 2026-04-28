@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
-import type { AppNode, CsvPayload, MergeUnionNode } from "../types/flow";
+import type { AppNode, CsvPayload, MergeUnionNode, SwitchBranch } from "../types/flow";
 import { getTabularOutput, getTabularOutputForEdge } from "./tabularOutput";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
+import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
 
 function csvSourceNode(id: string, csv: CsvPayload): AppNode {
   return {
@@ -101,6 +102,18 @@ function sortNode(id: string, keys: Array<{ column: string; direction: "asc" | "
     data: {
       label: "Sort",
       keys,
+    },
+  };
+}
+
+function switchNode(id: string, branches: SwitchBranch[]): AppNode {
+  return {
+    id,
+    type: "switch",
+    position: { x: 280, y: 140 },
+    data: {
+      label: "Switch",
+      branches,
     },
   };
 }
@@ -582,6 +595,153 @@ describe("getTabularOutput mergeUnion", () => {
     expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
       { id: "1", name: "Ada" },
       { id: "2", name: "Lin" },
+    ]);
+  });
+
+  it("emits a row to multiple Switch branches when multiple rules match", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+        ],
+      }),
+      switchNode("sw-1", [
+        {
+          id: "b1",
+          label: "B1",
+          combineAll: true,
+          rules: [{ id: "r1", column: "id", op: "eq", value: "1" }],
+        },
+        {
+          id: "b2",
+          label: "B2",
+          combineAll: true,
+          rules: [{ id: "r2", column: "name", op: "contains", value: "A" }],
+        },
+      ]),
+      visualizationNode("viz-1"),
+      visualizationNode("viz-2"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "sw-1"),
+      edge("e2", "sw-1", "viz-1", switchBranchSourceHandle("b1")),
+      edge("e3", "sw-1", "viz-2", switchBranchSourceHandle("b2")),
+    ];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([{ id: "1", name: "Ada" }]);
+    expect(getTabularOutput("viz-2", nodes, edges)?.rows).toEqual([{ id: "1", name: "Ada" }]);
+  });
+
+  it("routes non-matching rows to Switch default only", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+        ],
+      }),
+      switchNode("sw-1", [
+        {
+          id: "b1",
+          label: "B1",
+          combineAll: true,
+          rules: [{ id: "r1", column: "id", op: "eq", value: "1" }],
+        },
+      ]),
+      visualizationNode("viz-default"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "sw-1"),
+      edge("e2", "sw-1", "viz-default", SWITCH_DEFAULT_HANDLE),
+    ];
+
+    expect(getTabularOutput("viz-default", nodes, edges)?.rows).toEqual([{ id: "2", name: "Lin" }]);
+  });
+
+  it("routes non-matching rows for legacy Switch edges with sourceHandle \"default\"", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [
+          { id: "1", name: "Ada" },
+          { id: "2", name: "Lin" },
+        ],
+      }),
+      switchNode("sw-1", [
+        {
+          id: "b1",
+          label: "B1",
+          combineAll: true,
+          rules: [{ id: "r1", column: "id", op: "eq", value: "1" }],
+        },
+      ]),
+      visualizationNode("viz-default"),
+    ];
+    const edges = [edge("e1", "src-1", "sw-1"), edge("e2", "sw-1", "viz-default", "default")];
+
+    expect(getTabularOutput("viz-default", nodes, edges)?.rows).toEqual([{ id: "2", name: "Lin" }]);
+  });
+
+  it("supports CSV -> Switch -> Visualization on a branch handle", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [{ id: "2", name: "Lin" }],
+      }),
+      switchNode("sw-1", [
+        {
+          id: "b1",
+          label: "B1",
+          combineAll: true,
+          rules: [{ id: "r1", column: "id", op: "eq", value: "2" }],
+        },
+      ]),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "sw-1"),
+      edge("e2", "sw-1", "viz-1", switchBranchSourceHandle("b1")),
+    ];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([{ id: "2", name: "Lin" }]);
+  });
+
+  it("merges rows from two Switch branch outputs", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [{ id: "1", name: "Ada" }],
+      }),
+      switchNode("sw-1", [
+        {
+          id: "b1",
+          label: "B1",
+          combineAll: true,
+          rules: [{ id: "r1", column: "id", op: "eq", value: "1" }],
+        },
+        {
+          id: "b2",
+          label: "B2",
+          combineAll: true,
+          rules: [{ id: "r2", column: "name", op: "contains", value: "A" }],
+        },
+      ]),
+      mergeNode("merge-1"),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [
+      edge("e1", "src-1", "sw-1"),
+      edge("e2", "sw-1", "merge-1", switchBranchSourceHandle("b1")),
+      edge("e3", "sw-1", "merge-1", switchBranchSourceHandle("b2")),
+      edge("e4", "merge-1", "viz-1"),
+    ];
+
+    expect(getTabularOutput("viz-1", nodes, edges)?.rows).toEqual([
+      { id: "1", name: "Ada" },
+      { id: "1", name: "Ada" },
     ]);
   });
 });

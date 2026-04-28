@@ -94,6 +94,20 @@ export type SortNodeData = {
 
 export type SortNode = Node<SortNodeData, "sort">;
 
+export type SwitchBranch = {
+  id: string;
+  label: string;
+  combineAll: boolean;
+  rules: FilterRule[];
+};
+
+export type SwitchNodeData = {
+  label: string;
+  branches: SwitchBranch[];
+};
+
+export type SwitchNode = Node<SwitchNodeData, "switch">;
+
 export type AppNode =
   | CsvSourceNode
   | FilterNode
@@ -102,7 +116,8 @@ export type AppNode =
   | DownloadNode
   | ConditionalNode
   | SelectColumnsNode
-  | SortNode;
+  | SortNode
+  | SwitchNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -112,7 +127,8 @@ export type PaletteNodeType =
   | "download"
   | "conditional"
   | "selectColumns"
-  | "sort";
+  | "sort"
+  | "switch";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -158,6 +174,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Sort",
     description: "Order rows by one or more columns",
   },
+  {
+    type: "switch",
+    label: "Switch",
+    description: "Route rows to matching branches or default",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -199,6 +220,11 @@ export const defaultSortData = (): SortNodeData => ({
   keys: [],
 });
 
+export const defaultSwitchData = (): SwitchNodeData => ({
+  label: "Switch",
+  branches: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -215,6 +241,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "download" ||
     value === "conditional" ||
     value === "selectColumns" ||
-    value === "sort"
+    value === "sort" ||
+    value === "switch"
   );
 }

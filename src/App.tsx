@@ -24,6 +24,7 @@ import { DownloadNode } from "./nodes/DownloadNode";
 import { ConditionalNode } from "./nodes/ConditionalNode";
 import { SelectColumnsNode } from "./nodes/SelectColumnsNode";
 import { SortNode } from "./nodes/SortNode";
+import { SwitchNode } from "./nodes/SwitchNode";
 import type { AppNode } from "./types/flow";
 import {
   CSV_SOURCE_NODE_ID,
@@ -35,6 +36,7 @@ import {
   defaultMergeUnionData,
   defaultSelectColumnsData,
   defaultSortData,
+  defaultSwitchData,
   defaultVisualizationData,
   isPaletteNodeType,
 } from "./types/flow";
@@ -49,6 +51,7 @@ const nodeTypes = {
   conditional: ConditionalNode,
   selectColumns: SelectColumnsNode,
   sort: SortNode,
+  switch: SwitchNode,
 };
 
 const initialNodes: AppNode[] = [
@@ -230,6 +233,16 @@ function FlowWorkspace() {
             type: "sort",
             position,
             data: defaultSortData(),
+          },
+        ]);
+      } else if (nodeType === "switch") {
+        setNodes((nds) => [
+          ...nds,
+          {
+            id,
+            type: "switch",
+            position,
+            data: defaultSwitchData(),
           },
         ]);
       }
