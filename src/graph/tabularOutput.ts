@@ -92,6 +92,24 @@ function resolveNodeOutput(
       );
       return { headers: input.headers, rows };
     }
+    case "selectColumns": {
+      const selectNode = node as Extract<AppNode, { type: "selectColumns" }>;
+      const incoming = getIncomingEdge(nodeId, edges);
+      if (incoming == null) return null;
+      const input = getTabularOutputForEdge(incoming, nodes, edges, visited);
+      if (input == null) return null;
+
+      const selected = selectNode.data.selectedColumns ?? [];
+      const headers = selected.filter((header) => input.headers.includes(header));
+      const rows = input.rows.map((row) => {
+        const selectedRow: Record<string, string> = {};
+        for (const header of headers) {
+          selectedRow[header] = row[header] ?? "";
+        }
+        return selectedRow;
+      });
+      return { headers, rows };
+    }
     case "conditional": {
       const conditionalNode = node as Extract<AppNode, { type: "conditional" }>;
       const incoming = getIncomingEdge(nodeId, edges);

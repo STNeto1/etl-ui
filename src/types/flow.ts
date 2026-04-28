@@ -73,13 +73,21 @@ export type ConditionalNodeData = {
 
 export type ConditionalNode = Node<ConditionalNodeData, "conditional">;
 
+export type SelectColumnsNodeData = {
+  label: string;
+  selectedColumns: string[];
+};
+
+export type SelectColumnsNode = Node<SelectColumnsNodeData, "selectColumns">;
+
 export type AppNode =
   | CsvSourceNode
   | FilterNode
   | VisualizationNode
   | MergeUnionNode
   | DownloadNode
-  | ConditionalNode;
+  | ConditionalNode
+  | SelectColumnsNode;
 
 /** Node types users can drag from the palette (CSV source is fixed on the canvas). */
 export type PaletteNodeType =
@@ -87,7 +95,8 @@ export type PaletteNodeType =
   | "filter"
   | "mergeUnion"
   | "download"
-  | "conditional";
+  | "conditional"
+  | "selectColumns";
 
 export type PaletteItem = {
   type: PaletteNodeType;
@@ -123,6 +132,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
     label: "Conditional",
     description: "Route rows to if/else branches by rule match",
   },
+  {
+    type: "selectColumns",
+    label: "Select Columns",
+    description: "Keep only selected upstream columns",
+  },
 ];
 
 export const defaultFilterData = (): FilterNodeData => ({
@@ -154,6 +168,11 @@ export const defaultConditionalData = (): ConditionalNodeData => ({
   rules: [],
 });
 
+export const defaultSelectColumnsData = (): SelectColumnsNodeData => ({
+  label: "Select Columns",
+  selectedColumns: [],
+});
+
 export const defaultCsvSourceData = (): CsvSourceData => ({
   csv: null,
   source: null,
@@ -168,6 +187,7 @@ export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
     value === "filter" ||
     value === "mergeUnion" ||
     value === "download" ||
-    value === "conditional"
+    value === "conditional" ||
+    value === "selectColumns"
   );
 }

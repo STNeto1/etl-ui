@@ -81,6 +81,18 @@ function conditionalNode(id: string): AppNode {
   };
 }
 
+function selectColumnsNode(id: string, selectedColumns: string[]): AppNode {
+  return {
+    id,
+    type: "selectColumns",
+    position: { x: 300, y: 80 },
+    data: {
+      label: "Select Columns",
+      selectedColumns,
+    },
+  };
+}
+
 function edge(id: string, source: string, target: string, sourceHandle?: string): Edge {
   return { id, source, target, sourceHandle };
 }
@@ -376,5 +388,75 @@ describe("getTabularOutput mergeUnion", () => {
       { id: "2", name: "Lin" },
       { id: "3", name: "Max" },
     ]);
+  });
+
+  it("keeps only selected columns", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name", "city"],
+        rows: [{ id: "1", name: "Ada", city: "Lima" }],
+      }),
+      selectColumnsNode("select-1", ["id", "city"]),
+    ];
+    const edges = [edge("e1", "src-1", "select-1")];
+
+    const output = getTabularOutput("select-1", nodes, edges);
+    expect(output).toEqual({
+      headers: ["id", "city"],
+      rows: [{ id: "1", city: "Lima" }],
+    });
+  });
+
+  it("preserves selected column order", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name", "city"],
+        rows: [{ id: "1", name: "Ada", city: "Lima" }],
+      }),
+      selectColumnsNode("select-1", ["city", "id"]),
+    ];
+    const edges = [edge("e1", "src-1", "select-1")];
+
+    const output = getTabularOutput("select-1", nodes, edges);
+    expect(output?.headers).toEqual(["city", "id"]);
+    expect(output?.rows).toEqual([{ city: "Lima", id: "1" }]);
+  });
+
+  it("ignores missing selected columns", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name"],
+        rows: [{ id: "1", name: "Ada" }],
+      }),
+      selectColumnsNode("select-1", ["name", "missing", "id"]),
+    ];
+    const edges = [edge("e1", "src-1", "select-1")];
+
+    const output = getTabularOutput("select-1", nodes, edges);
+    expect(output).toEqual({
+      headers: ["name", "id"],
+      rows: [{ name: "Ada", id: "1" }],
+    });
+  });
+
+  it("supports CSV -> SelectColumns -> Visualization flow", () => {
+    const nodes: AppNode[] = [
+      csvSourceNode("src-1", {
+        headers: ["id", "name", "city"],
+        rows: [
+          { id: "1", name: "Ada", city: "Lima" },
+          { id: "2", name: "Lin", city: "Quito" },
+        ],
+      }),
+      selectColumnsNode("select-1", ["name"]),
+      visualizationNode("viz-1"),
+    ];
+    const edges = [edge("e1", "src-1", "select-1"), edge("e2", "select-1", "viz-1")];
+
+    const output = getTabularOutput("viz-1", nodes, edges);
+    expect(output).toEqual({
+      headers: ["name"],
+      rows: [{ name: "Ada" }, { name: "Lin" }],
+    });
   });
 });

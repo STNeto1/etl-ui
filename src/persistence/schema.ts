@@ -7,6 +7,7 @@ import {
   defaultDownloadData,
   defaultFilterData,
   defaultMergeUnionData,
+  defaultSelectColumnsData,
   defaultVisualizationData,
 } from "../types/flow";
 
@@ -193,6 +194,19 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
         label: asString(data.label) ?? defaults.label,
         combineAll: asBoolean(data.combineAll) ?? defaults.combineAll,
         rules,
+      },
+    };
+  }
+
+  if (type === "selectColumns") {
+    const defaults = defaultSelectColumnsData();
+    return {
+      id,
+      type: "selectColumns",
+      position: { x, y },
+      data: {
+        label: asString(data.label) ?? defaults.label,
+        selectedColumns: asStringArray(data.selectedColumns),
       },
     };
   }
