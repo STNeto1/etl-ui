@@ -53,6 +53,28 @@ describe("createDatasetStore", () => {
     expect(rows).toEqual([{ x: "b", y: "2" }]);
   });
 
+  it("supports concurrent scan calls for same dataset", async () => {
+    const store = createDatasetStore();
+    const csv = new File(["id,name\n1,A\n2,B\n3,C\n"], "t.csv", { type: "text/csv" });
+    const meta = await store.putCsv(csv);
+
+    const collect = async (): Promise<Record<string, string>[]> => {
+      const rows: Record<string, string>[] = [];
+      for await (const row of store.scan(meta.id)) {
+        rows.push(row);
+      }
+      return rows;
+    };
+
+    const [a, b] = await Promise.all([collect(), collect()]);
+    expect(a).toEqual([
+      { id: "1", name: "A" },
+      { id: "2", name: "B" },
+      { id: "3", name: "C" },
+    ]);
+    expect(b).toEqual(a);
+  });
+
   it("delete removes dataset", async () => {
     const store = createDatasetStore();
     const meta = await store.putCsv(new File(["h,v\nx,1\n"], "x.csv"));

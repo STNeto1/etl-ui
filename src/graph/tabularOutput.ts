@@ -23,14 +23,24 @@ import { applyLimitSample } from "../limitSample/applyLimitSample";
 import { applyUnnestArrayColumn } from "../unnest/applyUnnestArrayColumn";
 import { applyConstantColumns } from "../constantColumn/applyConstantColumns";
 import { applyPivotUnpivot } from "../pivotUnpivot/applyPivotUnpivot";
-import { logPlannerFallback, trySqlRowSourceForNode } from "./tabularSqlPlanner";
+import {
+  logPlannerFallback,
+  planSqlForEdge,
+  runCopyToCsvBuffer,
+  runCountQuery,
+  runPreviewQuery,
+  trySqlRowSourceForNode,
+} from "./tabularSqlPlanner";
 import { upstreamSubgraphStaleKey } from "./tabularStaleKey";
+import { streamRowSourceToCsvBlob } from "../download/toCsv";
 
 const TABULAR_DEBUG =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 
 type ResolveOpts = { limit?: number; signal?: AbortSignal; consumer?: string };
 const inFlightPlannerByKey = new Map<string, Promise<RowSource | null>>();
+const rowCountCacheByKey = new Map<string, number>();
+const ROW_COUNT_CACHE_MAX = 128;
 
 function plannerRequestKey(
   sourceId: string,
@@ -41,6 +51,20 @@ function plannerRequestKey(
 ): string {
   const stale = upstreamSubgraphStaleKey(sourceId, edges, nodes);
   return `${sourceId}::${sourceHandle ?? "node"}::${opts?.limit ?? "none"}::${opts?.consumer ?? "unknown"}::${stale}`;
+}
+
+function rowCountCacheKey(edge: Edge, nodes: AppNode[], edges: Edge[]): string {
+  const stale = upstreamSubgraphStaleKey(edge.source, edges, nodes);
+  return `${edge.source}::${edge.sourceHandle ?? "node"}::${stale}`;
+}
+
+function cacheRowCount(key: string, value: number): void {
+  rowCountCacheByKey.set(key, value);
+  if (rowCountCacheByKey.size <= ROW_COUNT_CACHE_MAX) return;
+  const firstKey = rowCountCacheByKey.keys().next().value;
+  if (typeof firstKey === "string") {
+    rowCountCacheByKey.delete(firstKey);
+  }
 }
 
 function visitKey(nodeId: string, branch: string | null): string {
@@ -346,6 +370,94 @@ export async function getTabularPayloadForEdgeAsync(
 
 /** Alias: pull-based row source for an incoming edge (materializes upstream chain). */
 export const getRowSourceForEdgeAsync = getTabularOutputForEdgeAsync;
+
+export async function getPreviewForEdgeAsync(
+  incomingEdge: Edge,
+  nodes: AppNode[],
+  edges: Edge[],
+  limit: number,
+): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  const requested = Math.max(0, Math.floor(limit));
+  try {
+    const planned = await planSqlForEdge(incomingEdge, nodes, edges);
+    if (planned != null) {
+      const rows = await runPreviewQuery(planned, requested);
+      return { headers: planned.headers, rows };
+    }
+  } catch (error) {
+    logPlannerFallback(
+      `preview edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  logPlannerFallback(`preview edge ${incomingEdge.id}: planner unsupported, using fallback`);
+  const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
+    limit: requested,
+    consumer: "visualization",
+  });
+  if (rs == null) return { headers: [], rows: [] };
+  const rows: Record<string, string>[] = [];
+  for await (const row of rs.rows()) {
+    rows.push(row);
+    if (rows.length >= requested) break;
+  }
+  return { headers: rs.headers, rows };
+}
+
+export async function getRowCountForEdgeAsync(
+  incomingEdge: Edge,
+  nodes: AppNode[],
+  edges: Edge[],
+): Promise<number | null> {
+  const cacheKey = rowCountCacheKey(incomingEdge, nodes, edges);
+  const cached = rowCountCacheByKey.get(cacheKey);
+  if (cached != null) return cached;
+  try {
+    const planned = await planSqlForEdge(incomingEdge, nodes, edges);
+    if (planned != null) {
+      const count = await runCountQuery(planned);
+      cacheRowCount(cacheKey, count);
+      return count;
+    }
+  } catch (error) {
+    logPlannerFallback(
+      `count edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  logPlannerFallback(`count edge ${incomingEdge.id}: planner unsupported, using fallback`);
+  const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
+    consumer: "rowCount",
+  });
+  if (rs == null) return null;
+  const count = rs.rowCount ?? (await countRowsInRowSource(rs));
+  cacheRowCount(cacheKey, count);
+  return count;
+}
+
+export async function downloadCsvForEdgeAsync(
+  incomingEdge: Edge,
+  nodes: AppNode[],
+  edges: Edge[],
+): Promise<Blob | null> {
+  try {
+    const planned = await planSqlForEdge(incomingEdge, nodes, edges);
+    if (planned != null) {
+      const bytes = await runCopyToCsvBuffer(planned);
+      const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(arrayBuffer).set(bytes);
+      return new Blob([arrayBuffer], { type: "text/csv;charset=utf-8;" });
+    }
+  } catch (error) {
+    logPlannerFallback(
+      `download edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  logPlannerFallback(`download edge ${incomingEdge.id}: planner unsupported, using fallback`);
+  const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
+    consumer: "download",
+  });
+  if (rs == null) return null;
+  return streamRowSourceToCsvBlob(rs);
+}
 
 export { collectRowSourceToPayload, rowSourceFromPayload, type RowSource, countRowsInRowSource };
 

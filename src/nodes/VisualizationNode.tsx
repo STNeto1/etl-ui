@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
+import { getPreviewForEdgeAsync, getRowCountForEdgeAsync } from "../graph/tabularOutput";
 import type {
   AppNode,
   VisualizationNode as VisualizationNodeType,
@@ -63,23 +63,14 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       const parentId = edge.source;
       const parent = nodes.find((n) => n.id === parentId);
       const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
-      const rs = await getTabularOutputForEdgeAsync(edge, nodes, edges, new Set(), {
-        limit: cap,
-        signal: abort.signal,
-        consumer: "visualization",
-      });
+      const preview = await getPreviewForEdgeAsync(edge, nodes, edges, cap);
+      const totalRowsResolved = await getRowCountForEdgeAsync(edge, nodes, edges);
       if (cancelled) return;
-      if (rs == null) {
+      if (preview.headers.length === 0 && preview.rows.length === 0) {
         setResolution({ kind: "no-data" });
         return;
       }
-      const displayRows: Record<string, string>[] = [];
-      const totalRowsResolved = rs.rowCount ?? null;
-
-      for await (const row of rs.rows()) {
-        displayRows.push(row);
-        if (displayRows.length >= cap) break;
-      }
+      const displayRows = preview.rows;
       const totalRows = totalRowsResolved;
 
       const viaFilter = parent?.type === "filter";
@@ -87,7 +78,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
 
       setResolution({
         kind: "ready",
-        headers: rs.headers,
+        headers: preview.headers,
         displayRows,
         totalRows,
         viaFilter,

@@ -5,6 +5,9 @@ import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { defaultDataSourceData } from "../types/flow";
 import {
   collectRowSourceToPayload,
+  downloadCsvForEdgeAsync,
+  getPreviewForEdgeAsync,
+  getRowCountForEdgeAsync,
   getTabularOutputAsync,
   getTabularOutputForEdgeAsync,
 } from "./tabularOutput";
@@ -96,5 +99,309 @@ describe("getTabularOutputAsync", () => {
     const collected = await collectRowSourceToPayload(rs!);
     expect(collected.headers).toEqual(["u"]);
     expect(collected.rows).toEqual([{ u: "v" }]);
+  });
+
+  it("plans numeric computeColumn expressions via SQL", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["qty", "price"],
+      rows: [
+        { qty: "2", price: "4" },
+        { qty: "3", price: "10" },
+      ],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "cc",
+        type: "computeColumn",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Compute",
+          columns: [{ id: "c1", outputName: "line", expression: "{{qty}}*{{price}}" }],
+        },
+      },
+      {
+        id: "viz",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
+    ];
+    const edges: Edge[] = [
+      { id: "e1", source: "src", target: "cc" },
+      { id: "e2", source: "cc", target: "viz" },
+    ];
+    const out = await collectRowSourceToPayload((await getTabularOutputAsync("cc", nodes, edges))!);
+    expect(out).toEqual({
+      headers: ["qty", "price", "line"],
+      rows: [
+        { qty: "2", price: "4", line: "8" },
+        { qty: "3", price: "10", line: "30" },
+      ],
+    });
+  });
+
+  it("falls back for non-numeric computeColumn templates", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["name", "id"],
+      rows: [{ name: "Ada", id: "1" }],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "cc",
+        type: "computeColumn",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Compute",
+          columns: [{ id: "c1", outputName: "label", expression: "{{name}} ({{id}})" }],
+        },
+      },
+      {
+        id: "viz",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
+    ];
+    const edges: Edge[] = [
+      { id: "e1", source: "src", target: "cc" },
+      { id: "e2", source: "cc", target: "viz" },
+    ];
+    const out = await collectRowSourceToPayload((await getTabularOutputAsync("cc", nodes, edges))!);
+    expect(out).toEqual({
+      headers: ["name", "id", "label"],
+      rows: [{ name: "Ada", id: "1", label: "Ada (1)" }],
+    });
+  });
+
+  it("supports unpivot in async graph execution", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["id", "a", "b"],
+      rows: [{ id: "x", a: "1", b: "2" }],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "pv",
+        type: "pivotUnpivot",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Pivot",
+          pivotUnpivotMode: "unpivot",
+          idColumns: ["id"],
+          nameColumn: "k",
+          valueColumn: "v",
+          indexColumns: [],
+          namesColumn: "",
+          valuesColumn: "",
+        },
+      },
+    ];
+    const edges: Edge[] = [{ id: "e1", source: "src", target: "pv" }];
+    const out = await collectRowSourceToPayload((await getTabularOutputAsync("pv", nodes, edges))!);
+    expect(out).toEqual({
+      headers: ["id", "k", "v"],
+      rows: [
+        { id: "x", k: "a", v: "1" },
+        { id: "x", k: "b", v: "2" },
+      ],
+    });
+  });
+
+  it("supports pivot in async graph execution", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["id", "metric", "val"],
+      rows: [
+        { id: "1", metric: "x", val: "10" },
+        { id: "1", metric: "y", val: "20" },
+      ],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "pv",
+        type: "pivotUnpivot",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Pivot",
+          pivotUnpivotMode: "pivot",
+          idColumns: [],
+          nameColumn: "name",
+          valueColumn: "value",
+          indexColumns: ["id"],
+          namesColumn: "metric",
+          valuesColumn: "val",
+        },
+      },
+    ];
+    const edges: Edge[] = [{ id: "e1", source: "src", target: "pv" }];
+    const out = await collectRowSourceToPayload((await getTabularOutputAsync("pv", nodes, edges))!);
+    expect(out).toEqual({
+      headers: ["id", "x", "y"],
+      rows: [{ id: "1", x: "10", y: "20" }],
+    });
+  });
+
+  it("supports unnestArray in async graph execution", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["id", "tags"],
+      rows: [{ id: "1", tags: '["a","b"]' }],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "un",
+        type: "unnestArray",
+        position: { x: 0, y: 0 },
+        data: { label: "Unnest", column: "tags", primitiveOutputColumn: "tag" },
+      },
+    ];
+    const edges: Edge[] = [{ id: "e1", source: "src", target: "un" }];
+    const out = await collectRowSourceToPayload((await getTabularOutputAsync("un", nodes, edges))!);
+    expect(out).toEqual({
+      headers: ["id", "tag"],
+      rows: [
+        { id: "1", tag: "a" },
+        { id: "1", tag: "b" },
+      ],
+    });
+  });
+
+  it("runs preview and count as query-driven edge consumers", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["n"],
+      rows: [{ n: "1" }, { n: "2" }, { n: "3" }],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+    ];
+    const edge: Edge = { id: "e1", source: "src", target: "viz" };
+    const preview = await getPreviewForEdgeAsync(edge, nodes, [edge], 2);
+    expect(preview.headers).toEqual(["n"]);
+    expect(preview.rows).toEqual([{ n: "1" }, { n: "2" }]);
+    const count = await getRowCountForEdgeAsync(edge, nodes, [edge]);
+    expect(count).toBe(3);
+  });
+
+  it("exports planner CSV for edge download", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["name", "note"],
+      rows: [{ name: "Ada", note: "Hello, world" }],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+    ];
+    const edge: Edge = { id: "e1", source: "src", target: "dl" };
+    const blob = await downloadCsvForEdgeAsync(edge, nodes, [edge]);
+    expect(blob).not.toBeNull();
+    const text = await blob!.text();
+    expect(text).toContain("name,note");
+    expect(text).toContain('Ada,"Hello, world"');
   });
 });

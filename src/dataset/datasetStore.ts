@@ -126,7 +126,7 @@ async function queryScanRows(
 ): Promise<Record<string, string>[]> {
   const db = await getDuckDb();
   const conn = await db.connect();
-  const fileName = `scan-${id}.ndjson`;
+  const fileName = `scan-${id}-${crypto.randomUUID()}.ndjson`;
   const selectCols = headers.map((h) => quoteSqlIdent(h)).join(", ");
   const baseSql =
     `SELECT ${selectCols}, ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ` +
@@ -480,41 +480,62 @@ export interface DatasetStore {
 export function createDatasetStore(): DatasetStore {
   const sqlSourceByDatasetId = new Map<DatasetId, CachedSqlSource>();
   const sqlInitByDatasetId = new Map<DatasetId, Promise<CachedSqlSource>>();
+  const canonicalParquetInitByDatasetId = new Map<DatasetId, Promise<IdbRow>>();
 
   async function materializeCanonicalParquetIfNeeded(row: IdbRow): Promise<IdbRow> {
-    if (row.meta.canonicalParquetOpfsRelPath) {
-      const existingParquet = await readOpfsParquetFile(row.id);
-      if (existingParquet != null) return row;
+    const inFlight = canonicalParquetInitByDatasetId.get(row.id);
+    if (inFlight != null) {
+      return inFlight;
     }
-    if (row.opfsRelPath == null) return row;
-    const opfsNdjson = await readOpfsNdjsonFile(row.id);
-    if (opfsNdjson == null) return row;
-    const db = await getDuckDb();
-    const srcName = `canon-src-${row.id}-${crypto.randomUUID()}.ndjson`;
-    const outName = `canon-out-${row.id}-${crypto.randomUUID()}.parquet`;
-    await db.registerFileHandle(srcName, opfsNdjson, DuckDBDataProtocol.BROWSER_FILEREADER, false);
-    const conn = await db.connect();
+    const init = (async () => {
+      if (row.meta.canonicalParquetOpfsRelPath) {
+        const existingParquet = await readOpfsParquetFile(row.id);
+        if (existingParquet != null) return row;
+      }
+      if (row.opfsRelPath == null) return row;
+      const opfsNdjson = await readOpfsNdjsonFile(row.id);
+      if (opfsNdjson == null) return row;
+      const db = await getDuckDb();
+      const srcName = `canon-src-${row.id}-${crypto.randomUUID()}.ndjson`;
+      const outName = `canon-out-${row.id}-${crypto.randomUUID()}.parquet`;
+      await db.registerFileHandle(srcName, opfsNdjson, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+      try {
+        const conn = await db.connect();
+        try {
+          await conn.query(
+            `COPY (SELECT * FROM read_ndjson_auto(${quoteSqlString(srcName)})) TO ${quoteSqlString(outName)} (FORMAT PARQUET)`,
+          );
+        } finally {
+          await conn.close();
+        }
+        const parquetBytes = await db.copyFileToBuffer(outName);
+        const written = await writeOpfsParquetFile(row.id, parquetBytes);
+        if (written == null) return row;
+        const next: IdbRow = {
+          ...row,
+          meta: {
+            ...row.meta,
+            canonicalParquetOpfsRelPath: written,
+          },
+        };
+        await persistIdbRow(next);
+        return next;
+      } catch (error) {
+        console.warn(
+          `[dataset-store] canonical parquet materialization skipped for dataset=${row.id}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return row;
+      } finally {
+        await db.dropFile(srcName).catch(() => undefined);
+        await db.dropFile(outName).catch(() => undefined);
+      }
+    })();
+    canonicalParquetInitByDatasetId.set(row.id, init);
     try {
-      await conn.query(
-        `COPY (SELECT * FROM read_ndjson_auto(${quoteSqlString(srcName)})) TO ${quoteSqlString(outName)} (FORMAT PARQUET)`,
-      );
+      return await init;
     } finally {
-      await conn.close();
+      canonicalParquetInitByDatasetId.delete(row.id);
     }
-    const parquetBytes = await db.copyFileToBuffer(outName);
-    await db.dropFile(srcName).catch(() => undefined);
-    await db.dropFile(outName).catch(() => undefined);
-    const written = await writeOpfsParquetFile(row.id, parquetBytes);
-    if (written == null) return row;
-    const next: IdbRow = {
-      ...row,
-      meta: {
-        ...row.meta,
-        canonicalParquetOpfsRelPath: written,
-      },
-    };
-    await persistIdbRow(next);
-    return next;
   }
 
   async function ensureSqlSourceForDataset(id: DatasetId): Promise<CachedSqlSource | null> {

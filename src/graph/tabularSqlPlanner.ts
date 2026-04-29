@@ -2,15 +2,30 @@ import type { Edge } from "@xyflow/react";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { getDuckDb } from "../engine/duckdb";
 import { rulesApplicableToHeaders } from "../filter/rowMatches";
+import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import { quoteSqlIdent, quoteSqlString } from "../sql/sqlQuote";
-import type { AppNode, FilterRule } from "../types/flow";
+import type {
+  AggregateMetricDef,
+  AppNode,
+  ComputeColumnDef,
+  FilterRule,
+  JoinKeyPair,
+} from "../types/flow";
 import type { RowSource } from "./rowSource";
 
 const SQL_CHUNK = 2000;
+const TEMPLATE_PLACEHOLDER = /\{\{([\s\S]*?)\}\}/g;
+const NUMERIC_LITERAL_CHARS = /^[-+*/()\d.\s]*$/;
 const PLANNER_DEBUG =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 
 type Planned = {
+  headers: string[];
+  sql: string;
+  cleanup: Array<() => Promise<void>>;
+};
+
+export type PlannedSqlQuery = {
   headers: string[];
   sql: string;
   cleanup: Array<() => Promise<void>>;
@@ -26,6 +41,149 @@ function singleIncoming(nodeId: string, edges: Edge[]): Edge | null {
 
 function selectAll(headers: string[]): string {
   return headers.map((h) => quoteSqlIdent(h)).join(", ");
+}
+
+function dedupeRightHeaders(leftHeaders: string[], rightHeaders: string[]): string[] {
+  const used = new Set(leftHeaders);
+  const out: string[] = [];
+  for (const h of rightHeaders) {
+    let name = h;
+    if (used.has(name)) {
+      name = `${h}__right`;
+      let n = 2;
+      while (used.has(name)) {
+        name = `${h}__right${n}`;
+        n += 1;
+      }
+    }
+    used.add(name);
+    out.push(name);
+  }
+  return out;
+}
+
+function parseFiniteNumberSql(columnExpr: string): string {
+  return `TRY_CAST(TRIM(COALESCE(CAST(${columnExpr} AS VARCHAR), '')) AS DOUBLE)`;
+}
+
+function aggregateProjection(
+  metrics: AggregateMetricDef[],
+  keys: string[],
+  headers: string[],
+): Array<{ outputName: string; expr: string }> {
+  const headerSet = new Set(headers);
+  const keySet = new Set(keys);
+  const seenMetricNames = new Set<string>();
+  const projections: Array<{ outputName: string; expr: string }> = [];
+  for (const m of metrics) {
+    const outName = m.outputName.trim();
+    if (!outName || keySet.has(outName) || seenMetricNames.has(outName)) continue;
+    const col = m.column?.trim() ?? "";
+    switch (m.op) {
+      case "count": {
+        if (!col) {
+          projections.push({
+            outputName: outName,
+            expr: `COUNT(*)::VARCHAR AS ${quoteSqlIdent(outName)}`,
+          });
+        } else if (headerSet.has(col)) {
+          const cell = `TRIM(COALESCE(CAST(${quoteSqlIdent(col)} AS VARCHAR), ''))`;
+          projections.push({
+            outputName: outName,
+            expr: `SUM(CASE WHEN ${cell} <> '' THEN 1 ELSE 0 END)::VARCHAR AS ${quoteSqlIdent(outName)}`,
+          });
+        }
+        seenMetricNames.add(outName);
+        break;
+      }
+      case "sum":
+      case "avg":
+      case "min":
+      case "max": {
+        if (!col || !headerSet.has(col)) break;
+        const num = parseFiniteNumberSql(quoteSqlIdent(col));
+        if (m.op === "sum") {
+          projections.push({
+            outputName: outName,
+            expr: `COALESCE(SUM(${num}), 0)::VARCHAR AS ${quoteSqlIdent(outName)}`,
+          });
+        } else if (m.op === "avg") {
+          projections.push({
+            outputName: outName,
+            expr: `CASE WHEN COUNT(${num}) = 0 THEN '' ELSE AVG(${num})::VARCHAR END AS ${quoteSqlIdent(outName)}`,
+          });
+        } else if (m.op === "min") {
+          projections.push({
+            outputName: outName,
+            expr: `CASE WHEN COUNT(${num}) = 0 THEN '' ELSE MIN(${num})::VARCHAR END AS ${quoteSqlIdent(outName)}`,
+          });
+        } else {
+          projections.push({
+            outputName: outName,
+            expr: `CASE WHEN COUNT(${num}) = 0 THEN '' ELSE MAX(${num})::VARCHAR END AS ${quoteSqlIdent(outName)}`,
+          });
+        }
+        seenMetricNames.add(outName);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return projections;
+}
+
+function parseTemplateRefs(expr: string): string[] {
+  const refs: string[] = [];
+  expr.replace(TEMPLATE_PLACEHOLDER, (_, inner: string) => {
+    const key = String(inner).trim();
+    if (key) refs.push(key);
+    return "";
+  });
+  return refs;
+}
+
+function allocatePivotHeader(raw: string, reserved: Set<string>): string {
+  const base = raw.trim().length === 0 ? "_empty" : raw.trim();
+  if (!reserved.has(base)) {
+    reserved.add(base);
+    return base;
+  }
+  let candidate = `pivot_${base}`;
+  let i = 0;
+  while (reserved.has(candidate)) {
+    i += 1;
+    candidate = `pivot_${base}_${i}`;
+  }
+  reserved.add(candidate);
+  return candidate;
+}
+
+function isNumericTemplateExpression(expr: string): boolean {
+  const nonPlaceholder = expr.replace(TEMPLATE_PLACEHOLDER, "");
+  return NUMERIC_LITERAL_CHARS.test(nonPlaceholder);
+}
+
+function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): string | null {
+  if (!isNumericTemplateExpression(expr)) return null;
+  let usesPlaceholder = false;
+  let unsupported = false;
+  const substituted = expr.replace(TEMPLATE_PLACEHOLDER, (_, inner: string) => {
+    const key = String(inner).trim();
+    if (!key || !availableHeaders.has(key)) {
+      unsupported = true;
+      return "0";
+    }
+    usesPlaceholder = true;
+    const numeric = parseFiniteNumberSql(quoteSqlIdent(key));
+    return `COALESCE(${numeric}, 0)`;
+  });
+  if (unsupported) return null;
+  const trimmed = substituted.trim();
+  if (!trimmed) return "''";
+  if (!NUMERIC_LITERAL_CHARS.test(trimmed)) return null;
+  if (!usesPlaceholder && !/[\d]/.test(trimmed)) return null;
+  return `CASE WHEN TRY_CAST((${trimmed}) AS DOUBLE) IS NULL THEN '' ELSE CAST((${trimmed}) AS VARCHAR) END`;
 }
 
 function castExpr(column: string, target: string): string {
@@ -210,6 +368,333 @@ async function planNode(
         cleanup: up.cleanup,
       };
     }
+    case "fillReplace": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+      const headerSet = new Set(up.headers);
+      const fills = node.data.fills ?? [];
+      const replacements = node.data.replacements ?? [];
+      const aliases = up.headers.map((h) => ({ ref: quoteSqlIdent(h), out: h }));
+
+      for (const fill of fills) {
+        const col = fill.column.trim();
+        if (!col || !headerSet.has(col)) continue;
+        for (let i = 0; i < aliases.length; i += 1) {
+          if (aliases[i]!.out !== col) continue;
+          aliases[i] = {
+            out: col,
+            ref: `CASE WHEN TRIM(COALESCE(CAST(${aliases[i]!.ref} AS VARCHAR), '')) = '' THEN ${quoteSqlString(fill.fillValue)} ELSE ${aliases[i]!.ref} END`,
+          };
+        }
+      }
+
+      for (const rep of replacements) {
+        const fromTrimmed = rep.from.trim();
+        if (!fromTrimmed) continue;
+        const targetCols =
+          rep.column != null && rep.column.trim() !== "" ? [rep.column.trim()] : up.headers;
+        for (const target of targetCols) {
+          if (!headerSet.has(target)) continue;
+          for (let i = 0; i < aliases.length; i += 1) {
+            if (aliases[i]!.out !== target) continue;
+            aliases[i] = {
+              out: target,
+              ref: `CASE WHEN TRIM(COALESCE(CAST(${aliases[i]!.ref} AS VARCHAR), '')) = ${quoteSqlString(fromTrimmed)} THEN ${quoteSqlString(rep.to)} ELSE ${aliases[i]!.ref} END`,
+            };
+          }
+        }
+      }
+
+      const projection = aliases
+        .map((a) => `CAST(${a.ref} AS VARCHAR) AS ${quoteSqlIdent(a.out)}`)
+        .join(", ");
+      return {
+        headers: up.headers,
+        sql: `SELECT ${projection} FROM (${up.sql})`,
+        cleanup: up.cleanup,
+      };
+    }
+    case "constantColumn": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+      const constants = node.data.constants ?? [];
+      if (constants.length === 0) return up;
+      const headers = [...up.headers];
+      const seen = new Set(headers);
+      for (const c of constants) {
+        const name = c.columnName.trim();
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        headers.push(name);
+      }
+      const projections: string[] = [];
+      for (const h of headers) {
+        const effective = [...constants].reverse().find((c) => c.columnName.trim() === h);
+        if (effective != null) {
+          projections.push(`${quoteSqlString(effective.value)} AS ${quoteSqlIdent(h)}`);
+        } else {
+          projections.push(`${quoteSqlIdent(h)} AS ${quoteSqlIdent(h)}`);
+        }
+      }
+      return {
+        headers,
+        sql: `SELECT ${projections.join(", ")} FROM (${up.sql})`,
+        cleanup: up.cleanup,
+      };
+    }
+    case "deduplicate": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+      const mode = node.data.dedupeMode ?? "fullRow";
+      const keys =
+        mode === "keyColumns"
+          ? (node.data.dedupeKeys ?? []).filter((k) => up.headers.includes(k))
+          : up.headers;
+      if (keys.length === 0) return up;
+      const keyList = keys.map((k) => quoteSqlIdent(k)).join(", ");
+      const withRank = `SELECT ${selectAll(up.headers)}, ROW_NUMBER() OVER (PARTITION BY ${keyList}) AS __rn FROM (${up.sql})`;
+      return {
+        headers: up.headers,
+        sql: `SELECT ${selectAll(up.headers)} FROM (${withRank}) WHERE __rn = 1`,
+        cleanup: up.cleanup,
+      };
+    }
+    case "aggregate": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+      const keySet = new Set(up.headers);
+      const keys = (node.data.groupKeys ?? []).filter((k) => keySet.has(k));
+      const metrics = aggregateProjection(node.data.metrics ?? [], keys, up.headers);
+      const actualOutHeaders = [...keys, ...metrics.map((m) => m.outputName)];
+      const selectParts = [
+        ...keys.map((k) => `${quoteSqlIdent(k)} AS ${quoteSqlIdent(k)}`),
+        ...metrics.map((m) => m.expr),
+      ];
+      if (selectParts.length === 0) {
+        return { headers: [], sql: `SELECT '' WHERE FALSE`, cleanup: up.cleanup };
+      }
+      const groupBy =
+        keys.length > 0 ? ` GROUP BY ${keys.map((k) => quoteSqlIdent(k)).join(", ")}` : "";
+      const orderBy =
+        keys.length > 0 ? ` ORDER BY ${keys.map((k) => quoteSqlIdent(k)).join(", ")}` : "";
+      return {
+        headers: actualOutHeaders,
+        sql: `SELECT ${selectParts.join(", ")} FROM (${up.sql})${groupBy}${orderBy}`,
+        cleanup: up.cleanup,
+      };
+    }
+    case "computeColumn": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+      const defs = (node.data.columns ?? []) as ComputeColumnDef[];
+      if (defs.length === 0) return up;
+
+      const available = new Set(up.headers);
+      const outHeaders = [...up.headers];
+      const seenHeaders = new Set(up.headers);
+      let currentSql = up.sql;
+
+      for (const def of defs) {
+        const outName = def.outputName.trim();
+        if (!outName) continue;
+        const refs = parseTemplateRefs(def.expression);
+        if (refs.some((r) => !available.has(r))) {
+          return null;
+        }
+        const numericExpr = buildNumericComputeExpr(def.expression, available);
+        if (numericExpr == null) {
+          return null;
+        }
+        if (!seenHeaders.has(outName)) {
+          seenHeaders.add(outName);
+          outHeaders.push(outName);
+        }
+        available.add(outName);
+        const projections = outHeaders.map((h) => {
+          if (h === outName) return `${numericExpr} AS ${quoteSqlIdent(h)}`;
+          return `${quoteSqlIdent(h)} AS ${quoteSqlIdent(h)}`;
+        });
+        currentSql = `SELECT ${projections.join(", ")} FROM (${currentSql})`;
+      }
+
+      return {
+        headers: outHeaders,
+        sql: currentSql,
+        cleanup: up.cleanup,
+      };
+    }
+    case "pivotUnpivot": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+
+      const mode = node.data.pivotUnpivotMode ?? "unpivot";
+      if (mode === "pivot") {
+        const indexColumns = node.data.indexColumns ?? [];
+        const namesColumn = (node.data.namesColumn ?? "").trim();
+        const valuesColumn = (node.data.valuesColumn ?? "").trim();
+        if (indexColumns.length === 0) return up;
+        if (!namesColumn || !valuesColumn) return up;
+        if (namesColumn === valuesColumn) return up;
+        if (!up.headers.includes(namesColumn) || !up.headers.includes(valuesColumn)) return up;
+        if (!indexColumns.every((c) => up.headers.includes(c))) return up;
+
+        const db = await getDuckDb();
+        const conn = await db.connect();
+        try {
+          const distinctSql = `SELECT DISTINCT COALESCE(CAST(${quoteSqlIdent(namesColumn)} AS VARCHAR), '') AS __pivot_name FROM (${up.sql})`;
+          const table = await conn.query(distinctSql);
+          const rawRows = tableRows(table, ["__pivot_name"]);
+          const normalizedOrder: string[] = [];
+          const seenNormalized = new Set<string>();
+          for (const row of rawRows) {
+            const raw = row["__pivot_name"] ?? "";
+            const normalized = raw.trim().length === 0 ? "" : raw.trim();
+            if (seenNormalized.has(normalized)) continue;
+            seenNormalized.add(normalized);
+            normalizedOrder.push(normalized);
+          }
+
+          const reserved = new Set(indexColumns);
+          const normalizedToHeader = new Map<string, string>();
+          for (const normalized of normalizedOrder) {
+            normalizedToHeader.set(normalized, allocatePivotHeader(normalized, reserved));
+          }
+          const idxSet = new Set(indexColumns);
+          const pivotHeaders = [...reserved].filter((h) => !idxSet.has(h));
+          pivotHeaders.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+          const outHeaders = [...indexColumns, ...pivotHeaders];
+
+          if (pivotHeaders.length === 0) {
+            const groupBy = indexColumns.map((c) => quoteSqlIdent(c)).join(", ");
+            const idxProj = indexColumns
+              .map(
+                (c) => `COALESCE(CAST(${quoteSqlIdent(c)} AS VARCHAR), '') AS ${quoteSqlIdent(c)}`,
+              )
+              .join(", ");
+            return {
+              headers: outHeaders,
+              sql: `SELECT ${idxProj} FROM (${up.sql}) GROUP BY ${groupBy}`,
+              cleanup: up.cleanup,
+            };
+          }
+
+          const idxProj = indexColumns
+            .map((c) => `COALESCE(CAST(${quoteSqlIdent(c)} AS VARCHAR), '') AS ${quoteSqlIdent(c)}`)
+            .join(", ");
+          const base = `SELECT ${idxProj}, COALESCE(CAST(${quoteSqlIdent(namesColumn)} AS VARCHAR), '') AS __name_raw, COALESCE(CAST(${quoteSqlIdent(valuesColumn)} AS VARCHAR), '') AS __value, ROW_NUMBER() OVER () AS __ord FROM (${up.sql})`;
+          const deduped = `SELECT ${selectAll(indexColumns)}, __name_raw, __value FROM (SELECT ${selectAll(indexColumns)}, __name_raw, __value, ROW_NUMBER() OVER (PARTITION BY ${selectAll(indexColumns)}, CASE WHEN TRIM(__name_raw) = '' THEN '' ELSE TRIM(__name_raw) END ORDER BY __ord DESC) AS __rn FROM (${base})) WHERE __rn = 1`;
+          const pivotExprs = pivotHeaders.map((h) => {
+            const normalized =
+              [...normalizedToHeader.entries()].find(([, out]) => out === h)?.[0] ?? "";
+            const normalizedSql = quoteSqlString(normalized);
+            return `COALESCE(MAX(CASE WHEN CASE WHEN TRIM(__name_raw) = '' THEN '' ELSE TRIM(__name_raw) END = ${normalizedSql} THEN __value ELSE NULL END), '') AS ${quoteSqlIdent(h)}`;
+          });
+          const groupBy = indexColumns.map((c) => quoteSqlIdent(c)).join(", ");
+          return {
+            headers: outHeaders,
+            sql: `SELECT ${selectAll(indexColumns)}, ${pivotExprs.join(", ")} FROM (${deduped}) GROUP BY ${groupBy}`,
+            cleanup: up.cleanup,
+          };
+        } finally {
+          await conn.close();
+        }
+      }
+
+      const idColumns = node.data.idColumns ?? [];
+      const nameCol = (node.data.nameColumn ?? "name").trim() || "name";
+      const valueCol = (node.data.valueColumn ?? "value").trim() || "value";
+      if (idColumns.length === 0) return up;
+      if (nameCol === valueCol) return up;
+      if (!idColumns.every((c) => up.headers.includes(c))) return up;
+      const idSet = new Set(idColumns);
+      if (idSet.has(nameCol) || idSet.has(valueCol)) return up;
+
+      const melt = up.headers.filter((h) => !idSet.has(h));
+      const outHeaders = [...idColumns, nameCol, valueCol];
+      if (melt.length === 0) {
+        return {
+          headers: outHeaders,
+          sql: `SELECT ${outHeaders.map((h) => `'' AS ${quoteSqlIdent(h)}`).join(", ")} WHERE FALSE`,
+          cleanup: up.cleanup,
+        };
+      }
+
+      const parts = melt.map((h) => {
+        const ids = idColumns
+          .map(
+            (id) => `COALESCE(CAST(${quoteSqlIdent(id)} AS VARCHAR), '') AS ${quoteSqlIdent(id)}`,
+          )
+          .join(", ");
+        const nameExpr = `${quoteSqlString(h)} AS ${quoteSqlIdent(nameCol)}`;
+        const valueExpr = `COALESCE(CAST(${quoteSqlIdent(h)} AS VARCHAR), '') AS ${quoteSqlIdent(valueCol)}`;
+        return `SELECT ${ids}, ${nameExpr}, ${valueExpr} FROM (${up.sql})`;
+      });
+      return {
+        headers: outHeaders,
+        sql: parts.join(" UNION ALL "),
+        cleanup: up.cleanup,
+      };
+    }
+    case "unnestArray": {
+      return null;
+    }
+    case "join": {
+      const leftEdge = edges.find(
+        (e) => e.target === nodeId && e.targetHandle === JOIN_LEFT_TARGET,
+      );
+      const rightEdge = edges.find(
+        (e) => e.target === nodeId && e.targetHandle === JOIN_RIGHT_TARGET,
+      );
+      if (leftEdge == null || rightEdge == null) return null;
+      const left = await planNode(
+        leftEdge.source,
+        leftEdge.sourceHandle ?? null,
+        nodes,
+        edges,
+        new Set(visited),
+      );
+      const right = await planNode(
+        rightEdge.source,
+        rightEdge.sourceHandle ?? null,
+        nodes,
+        edges,
+        new Set(visited),
+      );
+      if (left == null || right == null) return null;
+      const pairs = (node.data.keyPairs ?? []) as JoinKeyPair[];
+      if (pairs.length === 0) return null;
+      const leftSet = new Set(left.headers);
+      const rightSet = new Set(right.headers);
+      for (const p of pairs) {
+        if (!leftSet.has(p.leftColumn) || !rightSet.has(p.rightColumn)) return null;
+      }
+      const rightOut = dedupeRightHeaders(left.headers, right.headers);
+      const kind = node.data.joinKind === "left" ? "LEFT" : "INNER";
+      const on = pairs
+        .map((p) => `l.${quoteSqlIdent(p.leftColumn)} = r.${quoteSqlIdent(p.rightColumn)}`)
+        .join(" AND ");
+      const leftProj = left.headers.map((h) => `l.${quoteSqlIdent(h)} AS ${quoteSqlIdent(h)}`);
+      const rightProj = right.headers.map(
+        (h, i) => `r.${quoteSqlIdent(h)} AS ${quoteSqlIdent(rightOut[i] ?? h)}`,
+      );
+      return {
+        headers: [...left.headers, ...rightOut],
+        sql: `SELECT ${[...leftProj, ...rightProj].join(", ")} FROM (${left.sql}) l ${kind} JOIN (${right.sql}) r ON ${on}`,
+        cleanup: [...left.cleanup, ...right.cleanup],
+      };
+    }
     case "limitSample": {
       const inEdge = singleIncoming(nodeId, edges);
       if (inEdge == null) return null;
@@ -390,16 +875,80 @@ export async function trySqlRowSourceForNode(
   };
 }
 
+async function closePlannedCleanup(cleanup: Array<() => Promise<void>>): Promise<void> {
+  for (const fn of cleanup) {
+    await fn().catch(() => undefined);
+  }
+}
+
+export async function planSqlForEdge(
+  edge: Edge,
+  nodes: AppNode[],
+  edges: Edge[],
+): Promise<PlannedSqlQuery | null> {
+  const planned = await planNode(edge.source, edge.sourceHandle ?? null, nodes, edges, new Set());
+  if (planned == null) return null;
+  return { headers: planned.headers, sql: planned.sql, cleanup: planned.cleanup };
+}
+
+export async function runPreviewQuery(
+  planned: PlannedSqlQuery,
+  limit: number,
+): Promise<Record<string, string>[]> {
+  const db = await getDuckDb();
+  const conn = await db.connect();
+  const n = Math.max(0, Math.floor(limit));
+  const sql = `SELECT ${selectAll(planned.headers)} FROM (${planned.sql}) LIMIT ${n}`;
+  try {
+    const table = await conn.query(sql);
+    return tableRows(table, planned.headers);
+  } finally {
+    await conn.close();
+    await closePlannedCleanup(planned.cleanup);
+  }
+}
+
+export async function runCountQuery(planned: PlannedSqlQuery): Promise<number> {
+  const db = await getDuckDb();
+  const conn = await db.connect();
+  const countAlias = "row_count";
+  const sql = `SELECT COUNT(*) AS ${quoteSqlIdent(countAlias)} FROM (${planned.sql})`;
+  try {
+    const table = await conn.query(sql);
+    const rows = tableRows(table, [countAlias]);
+    const raw = rows[0]?.[countAlias] ?? "0";
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+  } finally {
+    await conn.close();
+    await closePlannedCleanup(planned.cleanup);
+  }
+}
+
+export async function runCopyToCsvBuffer(planned: PlannedSqlQuery): Promise<Uint8Array> {
+  const db = await getDuckDb();
+  const conn = await db.connect();
+  const outName = `export-${crypto.randomUUID()}.csv`;
+  try {
+    await conn.query(
+      `COPY (${planned.sql}) TO ${quoteSqlString(outName)} (FORMAT CSV, HEADER)`,
+    );
+    return await db.copyFileToBuffer(outName);
+  } finally {
+    await conn.close();
+    await db.dropFile(outName).catch(() => undefined);
+    await closePlannedCleanup(planned.cleanup);
+  }
+}
+
 export async function canPlanSqlForEdge(
   edge: Edge,
   nodes: AppNode[],
   edges: Edge[],
 ): Promise<boolean> {
-  const planned = await planNode(edge.source, edge.sourceHandle ?? null, nodes, edges, new Set());
+  const planned = await planSqlForEdge(edge, nodes, edges);
   if (planned == null) return false;
-  for (const fn of planned.cleanup) {
-    await fn().catch(() => undefined);
-  }
+  await closePlannedCleanup(planned.cleanup);
   return true;
 }
 
