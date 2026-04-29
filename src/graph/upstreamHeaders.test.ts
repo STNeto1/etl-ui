@@ -26,15 +26,30 @@ describe("tryUpstreamHeadersForIncomingEdge", () => {
         position: { x: 0, y: 0 },
         data: { label: "Conditional", combineAll: true, rules: [] },
       },
-      { id: "viz-if", type: "visualization", position: { x: 0, y: 0 }, data: { label: "Viz", previewRows: 5 } },
-      { id: "viz-else", type: "visualization", position: { x: 0, y: 0 }, data: { label: "Viz", previewRows: 5 } },
+      {
+        id: "viz-if",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
+      {
+        id: "viz-else",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
       {
         id: "merge",
         type: "mergeUnion",
         position: { x: 0, y: 0 },
         data: { label: "Merge", dedupeEnabled: false, dedupeMode: "fullRow", dedupeKeys: [] },
       },
-      { id: "viz-up", type: "visualization", position: { x: 0, y: 0 }, data: { label: "Viz", previewRows: 5 } },
+      {
+        id: "viz-up",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
       {
         id: "filter",
         type: "filter",

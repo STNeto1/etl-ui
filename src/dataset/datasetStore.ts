@@ -498,7 +498,12 @@ export function createDatasetStore(): DatasetStore {
       const db = await getDuckDb();
       const srcName = `canon-src-${row.id}-${crypto.randomUUID()}.ndjson`;
       const outName = `canon-out-${row.id}-${crypto.randomUUID()}.parquet`;
-      await db.registerFileHandle(srcName, opfsNdjson, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+      await db.registerFileHandle(
+        srcName,
+        opfsNdjson,
+        DuckDBDataProtocol.BROWSER_FILEREADER,
+        false,
+      );
       try {
         const conn = await db.connect();
         try {

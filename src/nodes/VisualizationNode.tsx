@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getPreviewForEdgeAsync, getRowCountForEdgeAsync } from "../graph/tabularOutput";
 import type {
@@ -30,6 +30,9 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const edges = useEdges();
   const requestedRows = data.previewRows ?? DEFAULT_PREVIEW_ROWS;
   const [resolution, setResolution] = useState<VizResolution>({ kind: "loading" });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const hasReadyResolutionRef = useRef(false);
+  const requestSeqRef = useRef(0);
 
   const upstreamStaleKey = useMemo(
     () => visualizationUpstreamStaleKey(id, edges, nodes),
@@ -47,26 +50,42 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     [id, setNodes],
   );
 
+  useEffect(() => {
+    hasReadyResolutionRef.current = resolution.kind === "ready";
+  }, [resolution]);
+
   // upstreamStaleKey encodes inbound edge + semantic upstream subgraph; avoids canceling slow
   // materialize on every React Flow nodes[] identity churn during pan/zoom.
   useEffect(() => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
     let cancelled = false;
-    const abort = new AbortController();
+    const preservePreviousReady = hasReadyResolutionRef.current;
     void (async () => {
       const incoming = edges.filter((e) => e.target === id);
       if (incoming.length === 0) {
-        if (!cancelled) setResolution({ kind: "no-edge" });
+        if (!cancelled && requestSeq === requestSeqRef.current) {
+          setIsRefreshing(false);
+          setResolution({ kind: "no-edge" });
+        }
         return;
       }
-      if (!cancelled) setResolution({ kind: "loading" });
+      if (!cancelled && requestSeq === requestSeqRef.current) {
+        if (preservePreviousReady) {
+          setIsRefreshing(true);
+        } else {
+          setResolution({ kind: "loading" });
+        }
+      }
       const edge = incoming[0]!;
       const parentId = edge.source;
       const parent = nodes.find((n) => n.id === parentId);
       const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
       const preview = await getPreviewForEdgeAsync(edge, nodes, edges, cap);
       const totalRowsResolved = await getRowCountForEdgeAsync(edge, nodes, edges);
-      if (cancelled) return;
+      if (cancelled || requestSeq !== requestSeqRef.current) return;
       if (preview.headers.length === 0 && preview.rows.length === 0) {
+        setIsRefreshing(false);
         setResolution({ kind: "no-data" });
         return;
       }
@@ -76,6 +95,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       const viaFilter = parent?.type === "filter";
       const rowsBeforeFilter: number | null = null;
 
+      setIsRefreshing(false);
       setResolution({
         kind: "ready",
         headers: preview.headers,
@@ -87,7 +107,9 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     })();
     return () => {
       cancelled = true;
-      abort.abort();
+      if (requestSeq === requestSeqRef.current) {
+        setIsRefreshing(false);
+      }
     };
   }, [upstreamStaleKey, requestedRows]);
 
@@ -208,6 +230,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                   +
                 </button>
                 <span className="text-neutral-400">/ {totalRows ?? `${MAX_PREVIEW_ROWS}+`}</span>
+                {isRefreshing && <span className="text-[10px] text-neutral-400">Refreshing…</span>}
                 {filterShrunk && rowsBeforeFilter != null && (
                   <span className="text-[10px] text-neutral-400">
                     ({rowsBeforeFilter} before filter)

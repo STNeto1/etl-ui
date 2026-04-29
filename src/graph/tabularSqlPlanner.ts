@@ -930,9 +930,7 @@ export async function runCopyToCsvBuffer(planned: PlannedSqlQuery): Promise<Uint
   const conn = await db.connect();
   const outName = `export-${crypto.randomUUID()}.csv`;
   try {
-    await conn.query(
-      `COPY (${planned.sql}) TO ${quoteSqlString(outName)} (FORMAT CSV, HEADER)`,
-    );
+    await conn.query(`COPY (${planned.sql}) TO ${quoteSqlString(outName)} (FORMAT CSV, HEADER)`);
     return await db.copyFileToBuffer(outName);
   } finally {
     await conn.close();
