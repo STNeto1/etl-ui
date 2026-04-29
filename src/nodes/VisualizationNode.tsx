@@ -51,6 +51,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   // materialize on every React Flow nodes[] identity churn during pan/zoom.
   useEffect(() => {
     let cancelled = false;
+    const abort = new AbortController();
     void (async () => {
       const incoming = edges.filter((e) => e.target === id);
       if (incoming.length === 0) {
@@ -62,7 +63,11 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       const parentId = edge.source;
       const parent = nodes.find((n) => n.id === parentId);
       const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
-      const rs = await getTabularOutputForEdgeAsync(edge, nodes, edges, new Set(), { limit: cap });
+      const rs = await getTabularOutputForEdgeAsync(edge, nodes, edges, new Set(), {
+        limit: cap,
+        signal: abort.signal,
+        consumer: "visualization",
+      });
       if (cancelled) return;
       if (rs == null) {
         setResolution({ kind: "no-data" });
@@ -91,6 +96,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     })();
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [upstreamStaleKey, requestedRows]);
 

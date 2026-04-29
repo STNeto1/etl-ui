@@ -89,6 +89,7 @@ import {
   type WorkspaceTemplateId,
   WORKSPACE_TEMPLATE_LIST,
 } from "./workspace/workspaceTemplates";
+import { getAppDatasetStore } from "./dataset/appDatasetStore";
 
 const nodeTypes = {
   dataSource: DataSourceNode,
@@ -182,6 +183,27 @@ function FlowWorkspace() {
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [edges, hydrated, nodes, workspaceId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    const ids = new Set<string>();
+    for (const n of nodes) {
+      if (n.type !== "dataSource") continue;
+      const id = n.data.datasetId;
+      if (id) ids.add(id);
+    }
+    if (ids.size === 0) return;
+    const store = getAppDatasetStore();
+    void Promise.all(
+      [...ids].map(async (id) => {
+        try {
+          await store.prewarmSqlSource(id);
+        } catch {
+          // warmup is best-effort
+        }
+      }),
+    );
+  }, [hydrated, nodes]);
 
   const handleSelectWorkspace = useCallback(
     async (nextId: string) => {

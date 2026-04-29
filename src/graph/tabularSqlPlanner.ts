@@ -7,8 +7,8 @@ import type { AppNode, FilterRule } from "../types/flow";
 import type { RowSource } from "./rowSource";
 
 const SQL_CHUNK = 2000;
-const PLANNER_DEBUG = true;
-// typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
+const PLANNER_DEBUG =
+  typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 
 type Planned = {
   headers: string[];
@@ -313,8 +313,9 @@ export async function trySqlRowSourceForNode(
   viaSourceHandle: string | null,
   nodes: AppNode[],
   edges: Edge[],
-  opts?: { limit?: number },
+  opts?: { limit?: number; signal?: AbortSignal; consumer?: string },
 ): Promise<RowSource | null> {
+  if (opts?.signal?.aborted) return null;
   const planStart = performance.now();
   const planned = await planNode(nodeId, viaSourceHandle, nodes, edges, new Set());
   if (planned == null) {
@@ -350,12 +351,14 @@ export async function trySqlRowSourceForNode(
         let offset = 0;
         const hardLimit = opts?.limit != null && opts.limit >= 0 ? Math.floor(opts.limit) : null;
         for (;;) {
+          if (opts?.signal?.aborted) break;
           const remaining = hardLimit == null ? SQL_CHUNK : Math.max(0, hardLimit - offset);
           if (remaining <= 0) break;
           const batchSize = Math.min(SQL_CHUNK, remaining);
           const sql = `SELECT ${selectAll(headers)} FROM (${plannedSql}) LIMIT ${batchSize} OFFSET ${offset}`;
           const batchStart = performance.now();
           const table = await conn.query(sql);
+          if (opts?.signal?.aborted) break;
           const rows = tableRows(table, headers);
           if (rows.length === 0) break;
           yielded += rows.length;
@@ -365,8 +368,10 @@ export async function trySqlRowSourceForNode(
             );
           }
           for (const row of rows) {
+            if (opts?.signal?.aborted) break;
             yield row;
           }
+          if (opts?.signal?.aborted) break;
           offset += rows.length;
           if (rows.length < SQL_CHUNK) break;
         }

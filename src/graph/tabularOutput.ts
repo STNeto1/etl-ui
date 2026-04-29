@@ -24,9 +24,24 @@ import { applyUnnestArrayColumn } from "../unnest/applyUnnestArrayColumn";
 import { applyConstantColumns } from "../constantColumn/applyConstantColumns";
 import { applyPivotUnpivot } from "../pivotUnpivot/applyPivotUnpivot";
 import { logPlannerFallback, trySqlRowSourceForNode } from "./tabularSqlPlanner";
+import { upstreamSubgraphStaleKey } from "./tabularStaleKey";
 
-const TABULAR_DEBUG = true
-  // typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
+const TABULAR_DEBUG =
+  typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
+
+type ResolveOpts = { limit?: number; signal?: AbortSignal; consumer?: string };
+const inFlightPlannerByKey = new Map<string, Promise<RowSource | null>>();
+
+function plannerRequestKey(
+  sourceId: string,
+  sourceHandle: string | null,
+  nodes: AppNode[],
+  edges: Edge[],
+  opts?: ResolveOpts,
+): string {
+  const stale = upstreamSubgraphStaleKey(sourceId, edges, nodes);
+  return `${sourceId}::${sourceHandle ?? "node"}::${opts?.limit ?? "none"}::${opts?.consumer ?? "unknown"}::${stale}`;
+}
 
 function visitKey(nodeId: string, branch: string | null): string {
   return `${nodeId}::${branch ?? "node"}`;
@@ -175,7 +190,7 @@ export async function getTabularOutputAsync(
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
-  opts?: { limit?: number },
+  opts?: ResolveOpts,
 ): Promise<RowSource | null> {
   const started = performance.now();
   try {
@@ -220,17 +235,32 @@ export async function getTabularOutputForEdgeAsync(
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
-  opts?: { limit?: number },
+  opts?: ResolveOpts,
 ): Promise<RowSource | null> {
   const started = performance.now();
+  const reqKey = plannerRequestKey(
+    incomingEdge.source,
+    incomingEdge.sourceHandle ?? null,
+    nodes,
+    edges,
+    opts,
+  );
   try {
-    const sqlPlanned = await trySqlRowSourceForNode(
-      incomingEdge.source,
-      incomingEdge.sourceHandle ?? null,
-      nodes,
-      edges,
-      opts,
-    );
+    const pending = inFlightPlannerByKey.get(reqKey);
+    const sqlPromise =
+      pending ??
+      trySqlRowSourceForNode(
+        incomingEdge.source,
+        incomingEdge.sourceHandle ?? null,
+        nodes,
+        edges,
+        opts,
+      );
+    if (pending == null) {
+      inFlightPlannerByKey.set(reqKey, sqlPromise);
+    }
+    const sqlPlanned = await sqlPromise;
+    inFlightPlannerByKey.delete(reqKey);
     if (sqlPlanned != null) {
       if (TABULAR_DEBUG) {
         console.debug(
@@ -240,6 +270,7 @@ export async function getTabularOutputForEdgeAsync(
       return sqlPlanned;
     }
   } catch (error) {
+    inFlightPlannerByKey.delete(reqKey);
     logPlannerFallback(
       `edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
     );
@@ -283,7 +314,7 @@ export async function getTabularPayloadForEdgeAsync(
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
-  opts?: { limit?: number },
+  opts?: ResolveOpts,
 ): Promise<CsvPayload | null> {
   try {
     const sqlPlanned = await trySqlRowSourceForNode(

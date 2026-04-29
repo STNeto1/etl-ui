@@ -17,6 +17,12 @@ export type DatasetSqlSource = {
   cleanup(): Promise<void>;
 };
 
+type CachedSqlSource = {
+  headers: string[];
+  fromSql: string;
+  dropFileName?: string;
+};
+
 const DB_NAME = "etl-ui-datasets";
 const DB_VERSION = 1;
 const STORE = "datasets";
@@ -425,6 +431,35 @@ async function readOpfsNdjsonFile(id: DatasetId): Promise<File | null> {
   }
 }
 
+async function readOpfsParquetFile(id: DatasetId): Promise<File | null> {
+  const base = await getOpfsDatasetDir();
+  if (base == null) return null;
+  try {
+    const dir = await base.getDirectoryHandle(id);
+    const fh = await dir.getFileHandle("dataset.parquet");
+    return await fh.getFile();
+  } catch {
+    return null;
+  }
+}
+
+async function writeOpfsParquetFile(id: DatasetId, bytes: Uint8Array): Promise<string | null> {
+  const base = await getOpfsDatasetDir();
+  if (base == null) return null;
+  try {
+    const dir = await base.getDirectoryHandle(id, { create: true });
+    const fh = await dir.getFileHandle("dataset.parquet", { create: true });
+    const w = await fh.createWritable();
+    const safe = new Uint8Array(bytes.byteLength);
+    safe.set(bytes);
+    await w.write(safe);
+    await w.close();
+    return `${id}/dataset.parquet`;
+  } catch {
+    return null;
+  }
+}
+
 export interface DatasetStore {
   putCsv(input: ReadableStream<Uint8Array> | File): Promise<DatasetMeta>;
   putJson(input: ReadableStream<Uint8Array> | File, jsonArrayPath: string): Promise<DatasetMeta>;
@@ -439,42 +474,93 @@ export interface DatasetStore {
   delete(id: DatasetId): Promise<void>;
   list(): Promise<DatasetMeta[]>;
   prepareSqlSource(id: DatasetId): Promise<DatasetSqlSource | null>;
+  prewarmSqlSource(id: DatasetId): Promise<void>;
 }
 
 export function createDatasetStore(): DatasetStore {
-  const sqlTableByDatasetId = new Map<DatasetId, { tableName: string; headers: string[] }>();
-  const sqlInitByDatasetId = new Map<DatasetId, Promise<{ tableName: string; headers: string[] }>>();
+  const sqlSourceByDatasetId = new Map<DatasetId, CachedSqlSource>();
+  const sqlInitByDatasetId = new Map<DatasetId, Promise<CachedSqlSource>>();
 
-  async function ensureSqlTableForDataset(id: DatasetId): Promise<{ tableName: string; headers: string[] } | null> {
-    const existing = sqlTableByDatasetId.get(id);
+  async function materializeCanonicalParquetIfNeeded(row: IdbRow): Promise<IdbRow> {
+    if (row.meta.canonicalParquetOpfsRelPath) {
+      const existingParquet = await readOpfsParquetFile(row.id);
+      if (existingParquet != null) return row;
+    }
+    if (row.opfsRelPath == null) return row;
+    const opfsNdjson = await readOpfsNdjsonFile(row.id);
+    if (opfsNdjson == null) return row;
+    const db = await getDuckDb();
+    const srcName = `canon-src-${row.id}-${crypto.randomUUID()}.ndjson`;
+    const outName = `canon-out-${row.id}-${crypto.randomUUID()}.parquet`;
+    await db.registerFileHandle(srcName, opfsNdjson, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+    const conn = await db.connect();
+    try {
+      await conn.query(
+        `COPY (SELECT * FROM read_ndjson_auto(${quoteSqlString(srcName)})) TO ${quoteSqlString(outName)} (FORMAT PARQUET)`,
+      );
+    } finally {
+      await conn.close();
+    }
+    const parquetBytes = await db.copyFileToBuffer(outName);
+    await db.dropFile(srcName).catch(() => undefined);
+    await db.dropFile(outName).catch(() => undefined);
+    const written = await writeOpfsParquetFile(row.id, parquetBytes);
+    if (written == null) return row;
+    const next: IdbRow = {
+      ...row,
+      meta: {
+        ...row.meta,
+        canonicalParquetOpfsRelPath: written,
+      },
+    };
+    await persistIdbRow(next);
+    return next;
+  }
+
+  async function ensureSqlSourceForDataset(id: DatasetId): Promise<CachedSqlSource | null> {
+    const existing = sqlSourceByDatasetId.get(id);
     if (existing != null) return existing;
     const inFlight = sqlInitByDatasetId.get(id);
     if (inFlight != null) return inFlight;
 
     const init = (async () => {
-      const row = await readIdbRowById(id);
+      let row = await readIdbRowById(id);
       if (row == null) throw new Error(`dataset ${id} not found`);
+      row = await materializeCanonicalParquetIfNeeded(row);
       const db = await getDuckDb();
+      if (row.meta.canonicalParquetOpfsRelPath != null) {
+        const pq = await readOpfsParquetFile(id);
+        if (pq != null) {
+          const fileName = `dataset-${id}.parquet`;
+          await db.registerFileHandle(fileName, pq, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+          const cached: CachedSqlSource = {
+            headers: [...(row.meta.headers ?? [])],
+            fromSql: `read_parquet(${quoteSqlString(fileName)})`,
+          };
+          sqlSourceByDatasetId.set(id, cached);
+          return cached;
+        }
+      }
+
       const fileName = `dataset-${id}-${crypto.randomUUID()}.ndjson`;
-      const tableName = `dataset_sql_${id.replaceAll("-", "_")}_${crypto.randomUUID().replaceAll("-", "_")}`;
       if (row.opfsRelPath != null) {
         const opfsFile = await readOpfsNdjsonFile(id);
         if (opfsFile == null) throw new Error(`dataset ${id} OPFS rows missing`);
-        await db.registerFileHandle(fileName, opfsFile, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+        await db.registerFileHandle(
+          fileName,
+          opfsFile,
+          DuckDBDataProtocol.BROWSER_FILEREADER,
+          false,
+        );
       } else {
         await db.registerFileText(fileName, row.bodyInline ?? "");
       }
-      const conn = await db.connect();
-      try {
-        await conn.query(
-          `CREATE OR REPLACE TABLE ${quoteSqlIdent(tableName)} AS SELECT * FROM read_ndjson_auto(${quoteSqlString(fileName)})`,
-        );
-      } finally {
-        await conn.close();
-        await db.dropFile(fileName).catch(() => undefined);
-      }
-      const cached = { tableName, headers: [...(row.meta.headers ?? [])] };
-      sqlTableByDatasetId.set(id, cached);
+      const cached: CachedSqlSource = {
+        headers: [...(row.meta.headers ?? [])],
+        fromSql: `read_ndjson_auto(${quoteSqlString(fileName)})`,
+        dropFileName: fileName,
+      };
+      sqlSourceByDatasetId.set(id, cached);
       return cached;
     })();
 
@@ -599,20 +685,28 @@ export function createDatasetStore(): DatasetStore {
 
     async delete(id) {
       await deleteOpfsDatasetDir(id);
-      const cached = sqlTableByDatasetId.get(id);
+      const cached = sqlSourceByDatasetId.get(id);
       if (cached != null) {
         const duck = await getDuckDb().catch(() => null);
         if (duck != null) {
+          if (cached.dropFileName) {
+            await duck.dropFile(cached.dropFileName).catch(() => undefined);
+          }
+          const fromPq = cached.fromSql.includes("read_parquet");
+          if (fromPq) {
+            const fileName = `dataset-${id}.parquet`;
+            await duck.dropFile(fileName).catch(() => undefined);
+          }
           const conn = await duck.connect().catch(() => null);
-          if (conn != null) {
+          if (conn != null && cached.fromSql.startsWith('"') === false) {
             try {
-              await conn.query(`DROP TABLE IF EXISTS ${quoteSqlIdent(cached.tableName)}`);
+              // no-op, kept for compatibility with older cached table mode
             } finally {
               await conn.close();
             }
           }
         }
-        sqlTableByDatasetId.delete(id);
+        sqlSourceByDatasetId.delete(id);
       }
       const db = await openDb();
       if (db == null) return;
@@ -638,13 +732,20 @@ export function createDatasetStore(): DatasetStore {
 
     async prepareSqlSource(id) {
       await ensureDuckDbReady();
-      const prepared = await ensureSqlTableForDataset(id);
+      const prepared = await ensureSqlSourceForDataset(id);
       if (prepared == null) return null;
       return {
         headers: [...prepared.headers],
-        fromSql: quoteSqlIdent(prepared.tableName),
-        cleanup: async () => {},
+        fromSql: prepared.fromSql,
+        cleanup: async () => {
+          // cached source remains hot for session reuse
+        },
       };
+    },
+
+    async prewarmSqlSource(id) {
+      await ensureDuckDbReady();
+      await ensureSqlSourceForDataset(id);
     },
   };
 }

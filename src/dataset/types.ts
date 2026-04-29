@@ -12,6 +12,8 @@ export type DatasetMeta = {
   createdAt: number;
   /** OPFS path to raw upload when captured (Phase 3 re-ingest). */
   rawOpfsRelPath?: string | null;
+  /** OPFS path to canonical parquet for planner cold-start performance. */
+  canonicalParquetOpfsRelPath?: string | null;
 };
 
 export type DatasetScanOptions = {
