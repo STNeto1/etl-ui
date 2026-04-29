@@ -75,29 +75,6 @@ async function openOpfsRowsWritable(id: DatasetId): Promise<FileSystemWritableFi
   }
 }
 
-async function writeRawCopyToOpfs(id: DatasetId, file: File): Promise<string | null> {
-  const base = await getOpfsDatasetDir();
-  if (base == null) return null;
-  try {
-    const dir = await base.getDirectoryHandle(id, { create: true });
-    const fh = await dir.getFileHandle("original.bin", { create: true });
-    const w = await fh.createWritable();
-    const reader = file.stream().getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value != null && value.length > 0) {
-        await w.write(value);
-      }
-    }
-    reader.releaseLock();
-    await w.close();
-    return `${id}/original.bin`;
-  } catch {
-    return null;
-  }
-}
-
 async function deleteOpfsDatasetDir(id: DatasetId): Promise<void> {
   const base = await getOpfsDatasetDir();
   if (base == null) return;
@@ -176,7 +153,6 @@ async function ingestNdjsonLines(
   useOpfs: boolean,
   headersAcc: string[],
   rows: AsyncIterable<Record<string, string>>,
-  rawSource: File | null,
 ): Promise<DatasetMeta> {
   const id = newId();
   const sample: Record<string, string>[] = [];
@@ -185,14 +161,12 @@ async function ingestNdjsonLines(
   const encoder = new TextEncoder();
   let opfsWriter: FileSystemWritableFileStream | null = null;
   let inline = "";
-  let rawRel: string | null = null;
+  let opfsBuffer = "";
+  const OPFS_WRITE_BUFFER_BYTES = 256 * 1024;
 
   if (useOpfs) {
     opfsWriter = await openOpfsRowsWritable(id);
   }
-
-  const rawPromise =
-    rawSource != null && rawSource instanceof File ? writeRawCopyToOpfs(id, rawSource) : null;
 
   try {
     for await (const row of rows) {
@@ -210,16 +184,20 @@ async function ingestNdjsonLines(
         throw new Error(chk.error);
       }
       if (opfsWriter != null) {
-        await opfsWriter.write(line);
+        opfsBuffer += line;
+        if (opfsBuffer.length >= OPFS_WRITE_BUFFER_BYTES) {
+          await opfsWriter.write(opfsBuffer);
+          opfsBuffer = "";
+        }
       } else {
         inline += line;
       }
     }
     if (opfsWriter != null) {
+      if (opfsBuffer.length > 0) {
+        await opfsWriter.write(opfsBuffer);
+      }
       await opfsWriter.close();
-    }
-    if (rawPromise != null) {
-      rawRel = await rawPromise;
     }
   } catch (e) {
     if (opfsWriter != null) {
@@ -242,7 +220,6 @@ async function ingestNdjsonLines(
     bytes: Math.max(writtenBytes, byteHint),
     format,
     createdAt: Date.now(),
-    ...(rawRel != null ? { rawOpfsRelPath: rawRel } : {}),
   };
 
   let bodyInline: string | null = inline;
@@ -314,7 +291,6 @@ export function createDatasetStore(): DatasetStore {
               yield normalizeScanRow(parsed.csv.headers, r);
             }
           })(),
-          null,
         );
       }
       const hint = fileByteLength(input);
@@ -324,7 +300,7 @@ export function createDatasetStore(): DatasetStore {
         headersAcc.length = 0;
         headersAcc.push(...h);
       });
-      return ingestNdjsonLines("csv", hint, useOpfs, headersAcc, rows, input);
+      return ingestNdjsonLines("csv", hint, useOpfs, headersAcc, rows);
     },
 
     async putNdjson(input) {
@@ -338,17 +314,9 @@ export function createDatasetStore(): DatasetStore {
           useOpfs,
           headersAcc,
           iterateNdjsonRowsFromUint8Stream(input.stream()),
-          input,
         );
       }
-      return ingestNdjsonLines(
-        "ndjson",
-        0,
-        true,
-        [],
-        iterateNdjsonRowsFromUint8Stream(input),
-        null,
-      );
+      return ingestNdjsonLines("ndjson", 0, true, [], iterateNdjsonRowsFromUint8Stream(input));
     },
 
     async putJson(input, jsonArrayPath) {
@@ -371,7 +339,6 @@ export function createDatasetStore(): DatasetStore {
             yield r;
           }
         })(),
-        input instanceof File ? input : null,
       );
     },
 
@@ -388,7 +355,6 @@ export function createDatasetStore(): DatasetStore {
             yield normalizeScanRow(payload.headers, r);
           }
         })(),
-        null,
       );
     },
 

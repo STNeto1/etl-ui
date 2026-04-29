@@ -92,6 +92,18 @@ function stripOutgoingSourceEdges(
   setEdges((edges) => edges.filter((e) => e.source !== sourceNodeId));
 }
 
+async function hasLikelyStorageHeadroom(fileBytes: number): Promise<boolean> {
+  try {
+    if (navigator.storage?.estimate == null) return true;
+    const estimate = await navigator.storage.estimate();
+    if (estimate.quota == null || estimate.usage == null) return true;
+    const remaining = Math.max(0, estimate.quota - estimate.usage);
+    return remaining >= fileBytes * 1.5;
+  } catch {
+    return true;
+  }
+}
+
 function DataSourceParseFailureHelp({ error, body }: { error: string; body: string | null }) {
   const shape = isJsonTabularShapeError(error);
   return (
@@ -269,6 +281,19 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
         patchData({
           ...INGEST_FAILURE_RESET,
           error: fileTooLargeMessage(maxBytes, file.size),
+        });
+        setBusy(false);
+        return;
+      }
+      const hasHeadroom = await hasLikelyStorageHeadroom(file.size);
+      if (!hasHeadroom) {
+        lastLocalFileRef.current = null;
+        stripOutgoingSourceEdges(setEdges, id);
+        setParsePreviewBody(null);
+        patchData({
+          ...INGEST_FAILURE_RESET,
+          error:
+            "Not enough browser storage available for this upload. Clear old datasets/site data and try again.",
         });
         setBusy(false);
         return;

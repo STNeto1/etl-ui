@@ -27,6 +27,7 @@ describe("createDatasetStore", () => {
     expect(meta.headers).toEqual(["a", "b"]);
     expect(meta.rowCount).toBe(2);
     expect(meta.sample.length).toBeGreaterThan(0);
+    expect(meta.rawOpfsRelPath).toBeUndefined();
 
     const rows: Record<string, string>[] = [];
     for await (const row of store.scan(meta.id)) {

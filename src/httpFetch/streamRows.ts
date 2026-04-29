@@ -33,13 +33,27 @@ export function iterateCsvRowsFromFile(
   file: File,
   onMeta: (headers: string[]) => void,
 ): AsyncIterable<Record<string, string>> {
+  const QUEUE_HIGH_WATER = 500;
+  const QUEUE_LOW_WATER = 200;
   const queue: Record<string, string>[] = [];
+  let queueHead = 0;
   let done = false;
   let error: string | null = null;
-  let notify: (() => void) | null = null;
+  let parsedRowCount = 0;
+  let paused = false;
+  let parserRef: Parser | null = null;
+  const waiters: Array<() => void> = [];
+
+  const wake = () => {
+    while (waiters.length > 0) {
+      const resolve = waiters.shift();
+      resolve?.();
+    }
+  };
+
   const wait = () =>
-    new Promise<void>((r) => {
-      notify = r;
+    new Promise<void>((resolve) => {
+      waiters.push(resolve);
     });
 
   Papa.parse<Record<string, string>>(file, {
@@ -47,11 +61,12 @@ export function iterateCsvRowsFromFile(
     skipEmptyLines: "greedy",
     transformHeader: (h) => h.trim(),
     step: (result, parser: Parser) => {
+      parserRef = parser;
       if (error != null) return;
       if (result.errors.length > 0) {
         error = result.errors.map((e) => e.message).join("; ");
         parser.abort();
-        notify?.();
+        wake();
         return;
       }
       const fields = result.meta.fields ?? [];
@@ -62,39 +77,53 @@ export function iterateCsvRowsFromFile(
       const row = result.data;
       if (row == null || typeof row !== "object" || Array.isArray(row)) return;
       if (!Object.values(row).some((v) => String(v ?? "").trim() !== "")) return;
-      const chk = validateIngestRowCount(queue.length + 1);
+      parsedRowCount++;
+      const chk = validateIngestRowCount(parsedRowCount);
       if (chk.ok === false) {
         error = chk.error;
         parser.abort();
-        notify?.();
+        wake();
         return;
       }
       queue.push(row);
-      notify?.();
+      if (!paused && queue.length - queueHead >= QUEUE_HIGH_WATER) {
+        paused = true;
+        parser.pause();
+      }
+      wake();
     },
     complete: () => {
       done = true;
-      notify?.();
+      wake();
     },
     error: (err) => {
       error = err.message ?? String(err);
       done = true;
-      notify?.();
+      wake();
     },
   });
 
   return {
     async *[Symbol.asyncIterator]() {
       for (;;) {
-        while (queue.length > 0) {
-          yield queue.shift()!;
+        while (queueHead < queue.length) {
+          const row = queue[queueHead]!;
+          queueHead++;
+          if (queueHead > 256 && queueHead * 2 >= queue.length) {
+            queue.splice(0, queueHead);
+            queueHead = 0;
+          }
+          if (paused && queue.length - queueHead <= QUEUE_LOW_WATER) {
+            paused = false;
+            parserRef?.resume();
+          }
+          yield row;
         }
         if (done) {
           if (error != null) throw new Error(error);
           return;
         }
         await wait();
-        notify = null;
       }
     },
   };

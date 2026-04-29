@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { countRowsInRowSource, getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
+import { getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
+import type { RowSource } from "../graph/rowSource";
 import type {
   AppNode,
   VisualizationNode as VisualizationNodeType,
@@ -8,7 +9,9 @@ import type {
 } from "../types/flow";
 import { visualizationUpstreamStaleKey } from "../graph/tabularStaleKey";
 
-const DEFAULT_PREVIEW_ROWS = 5;
+const DEFAULT_PREVIEW_ROWS = 100;
+const MAX_PREVIEW_ROWS = 10_000;
+const PREVIEW_QUERY_TIMEOUT_MS = 15_000;
 
 type VizResolution =
   | { kind: "loading" }
@@ -18,7 +21,7 @@ type VizResolution =
       kind: "ready";
       headers: string[];
       displayRows: Record<string, string>[];
-      totalRows: number;
+      totalRows: number | null;
       viaFilter: boolean;
       rowsBeforeFilter: number | null;
     };
@@ -60,30 +63,28 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       const edge = incoming[0]!;
       const parentId = edge.source;
       const parent = nodes.find((n) => n.id === parentId);
-      const rs = await getTabularOutputForEdgeAsync(edge, nodes, edges);
+      const rs = await Promise.race<RowSource | null | "timeout">([
+        getTabularOutputForEdgeAsync(edge, nodes, edges),
+        new Promise<"timeout">((resolve) => {
+          window.setTimeout(() => resolve("timeout"), PREVIEW_QUERY_TIMEOUT_MS);
+        }),
+      ]);
       if (cancelled) return;
+      if (rs === "timeout") {
+        setResolution({ kind: "no-data" });
+        return;
+      }
       if (rs == null) {
         setResolution({ kind: "no-data" });
         return;
       }
-      const cap = Math.max(1, requestedRows);
+      const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
       const displayRows: Record<string, string>[] = [];
-      let totalRowsResolved = rs.rowCount;
+      const totalRowsResolved = rs.rowCount ?? null;
 
-      if (totalRowsResolved !== undefined) {
-        for await (const row of rs.rows()) {
-          displayRows.push(row);
-          if (displayRows.length >= cap) break;
-        }
-      } else {
-        let n = 0;
-        for await (const row of rs.rows()) {
-          n++;
-          if (displayRows.length < cap) {
-            displayRows.push(row);
-          }
-        }
-        totalRowsResolved = n;
+      for await (const row of rs.rows()) {
+        displayRows.push(row);
+        if (displayRows.length >= cap) break;
       }
       const totalRows = totalRowsResolved;
 
@@ -119,23 +120,27 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const viaFilter = resolution.kind === "ready" ? resolution.viaFilter : false;
   const rowsBeforeFilter = resolution.kind === "ready" ? resolution.rowsBeforeFilter : null;
   const headers = resolution.kind === "ready" ? resolution.headers : [];
-  const totalRows = resolution.kind === "ready" ? resolution.totalRows : 0;
+  const totalRows = resolution.kind === "ready" ? resolution.totalRows : null;
   const effectiveRowCount =
-    resolution.kind === "ready" && totalRows > 0
+    resolution.kind === "ready" && totalRows != null && totalRows > 0
       ? Math.min(Math.max(1, requestedRows), totalRows)
-      : 0;
+      : Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
 
   const previewRows =
     resolution.kind === "ready" ? resolution.displayRows.slice(0, effectiveRowCount) : [];
 
   const filterShrunk =
-    viaFilter && rowsBeforeFilter != null && rowsBeforeFilter > 0 && totalRows < rowsBeforeFilter;
+    viaFilter &&
+    rowsBeforeFilter != null &&
+    rowsBeforeFilter > 0 &&
+    totalRows != null &&
+    totalRows < rowsBeforeFilter;
 
   const onRowsInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
       const v = Number.parseInt(e.target.value, 10);
       if (Number.isNaN(v)) return;
-      const cap = totalRows > 0 ? totalRows : 1;
+      const cap = totalRows != null && totalRows > 0 ? totalRows : MAX_PREVIEW_ROWS;
       patchData({ previewRows: Math.min(Math.max(1, v), cap) });
     },
     [patchData, totalRows],
@@ -143,9 +148,10 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
 
   const bumpRows = useCallback(
     (delta: number) => {
-      if (totalRows === 0) return;
-      const shown = Math.min(Math.max(1, requestedRows), totalRows);
-      patchData({ previewRows: Math.min(totalRows, Math.max(1, shown + delta)) });
+      if (totalRows != null && totalRows === 0) return;
+      const cap = totalRows != null ? totalRows : MAX_PREVIEW_ROWS;
+      const shown = Math.min(Math.max(1, requestedRows), cap);
+      patchData({ previewRows: Math.min(cap, Math.max(1, shown + delta)) });
     },
     [patchData, requestedRows, totalRows],
   );
@@ -210,8 +216,8 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 <input
                   type="number"
                   min={1}
-                  max={Math.max(1, totalRows)}
-                  value={totalRows === 0 ? "" : effectiveRowCount}
+                  max={Math.max(1, totalRows ?? MAX_PREVIEW_ROWS)}
+                  value={effectiveRowCount}
                   onChange={onRowsInputChange}
                   disabled={totalRows === 0}
                   className="nodrag nopan w-12 rounded border border-neutral-300 bg-white px-1 py-0.5 text-center text-neutral-900 [appearance:textfield] disabled:opacity-40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
@@ -219,13 +225,15 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 <button
                   type="button"
                   aria-label="Show one more row"
-                  disabled={totalRows === 0 || effectiveRowCount >= totalRows}
+                  disabled={
+                    totalRows === 0 || (totalRows != null && effectiveRowCount >= totalRows)
+                  }
                   onClick={() => bumpRows(1)}
                   className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   +
                 </button>
-                <span className="text-neutral-400">/ {totalRows}</span>
+                <span className="text-neutral-400">/ {totalRows ?? `${MAX_PREVIEW_ROWS}+`}</span>
                 {filterShrunk && rowsBeforeFilter != null && (
                   <span className="text-[10px] text-neutral-400">
                     ({rowsBeforeFilter} before filter)
@@ -263,9 +271,11 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         </div>
       )}
 
-      {resolution.kind === "ready" && totalRows > 0 && (
+      {resolution.kind === "ready" && previewRows.length > 0 && (
         <p className="mt-1 px-1 text-[10px] text-neutral-400">
-          Showing {effectiveRowCount} of {totalRows} row{totalRows === 1 ? "" : "s"} from upstream
+          Showing {previewRows.length}
+          {totalRows != null ? ` of ${totalRows}` : " (capped preview)"} row
+          {(totalRows ?? previewRows.length) === 1 ? "" : "s"} from upstream
           {viaFilter ? " (after filter)" : " (pass-through)"} (plus header).
         </p>
       )}
