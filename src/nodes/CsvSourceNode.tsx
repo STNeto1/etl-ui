@@ -9,12 +9,20 @@ import {
 } from "react";
 import Papa from "papaparse";
 import { Handle, Position, useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
+import {
+  fileTooLargeMessage,
+  getMaxCsvNdjsonBytes,
+  maxBytesForIngestHint,
+  type IngestFormatHint,
+  validateIngestPayload,
+} from "../ingestLimits";
 import { buildCurlCommand } from "../httpFetch/buildCurl";
 import { ingestLocalFileText } from "../httpFetch/ingestLocalDataFile";
 import {
   buildRequestUrl,
   fetchToCsvPayload,
   isJsonTabularShapeError,
+  parseCsvFromFile,
   truncateForParseErrorPreview,
 } from "../httpFetch/runHttpFetch";
 import type {
@@ -117,6 +125,19 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
 
   const applySuccess = useCallback(
     (payload: CsvPayload, source: CsvSourceKind, fileName: string | null) => {
+      const rowCheck = validateIngestPayload(payload);
+      if (rowCheck.ok === false) {
+        stripOutgoingSourceEdges(setEdges, id);
+        setParsePreviewBody(null);
+        patchData({
+          error: rowCheck.error,
+          csv: null,
+          source: null,
+          fileName: null,
+          loadedAt: null,
+        });
+        return;
+      }
       setParsePreviewBody(null);
       patchData({
         csv: payload,
@@ -126,7 +147,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         loadedAt: Date.now(),
       });
     },
-    [patchData],
+    [id, patchData, setEdges],
   );
 
   const httpJsonArrayPath = data.httpJsonArrayPath ?? "";
@@ -175,11 +196,52 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       if (!file) return;
       setBusy(true);
       patchData({ error: null });
+      const lower = file.name.toLowerCase();
+      const hint: IngestFormatHint = lower.endsWith(".json")
+        ? "json"
+        : lower.endsWith(".ndjson")
+          ? "ndjson"
+          : lower.endsWith(".csv")
+            ? "csv"
+            : "unknown";
+      const maxBytes = maxBytesForIngestHint(hint);
+      if (file.size > maxBytes) {
+        lastLocalFileRef.current = null;
+        stripOutgoingSourceEdges(setEdges, id);
+        setParsePreviewBody(null);
+        patchData({
+          error: fileTooLargeMessage(maxBytes, file.size),
+          csv: null,
+          source: null,
+          fileName: null,
+          loadedAt: null,
+        });
+        setBusy(false);
+        return;
+      }
       try {
+        if (lower.endsWith(".csv")) {
+          lastLocalFileRef.current = null;
+          const result = await parseCsvFromFile(file);
+          if ("error" in result) {
+            stripOutgoingSourceEdges(setEdges, id);
+            setParsePreviewBody(null);
+            patchData({
+              error: result.error,
+              csv: null,
+              source: null,
+              fileName: null,
+              loadedAt: null,
+            });
+            return;
+          }
+          applySuccess(result.csv, "file", file.name);
+          return;
+        }
+
         const text = await file.text();
         lastLocalFileRef.current = { name: file.name, text };
         const result = ingestLocalFileText(file.name, text, httpJsonArrayPath);
-        const lower = file.name.toLowerCase();
         if ("error" in result) {
           stripOutgoingSourceEdges(setEdges, id);
           const showBody =
@@ -232,6 +294,18 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         return;
       }
       const text = await res.text();
+      const bodyBytes = new TextEncoder().encode(text).length;
+      const maxTemplateBytes = getMaxCsvNdjsonBytes();
+      if (bodyBytes > maxTemplateBytes) {
+        patchData({
+          error: fileTooLargeMessage(maxTemplateBytes, bodyBytes),
+          csv: null,
+          source: null,
+          fileName: null,
+          loadedAt: null,
+        });
+        return;
+      }
       const result = Papa.parse<Record<string, string>>(text, {
         header: true,
         skipEmptyLines: "greedy",

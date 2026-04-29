@@ -4,6 +4,7 @@ import {
   enhanceFetchErrorMessage,
   fetchToCsvPayload,
   isJsonTabularShapeError,
+  parseCsvFromFile,
   parseCsvText,
   parseJsonArrayToCsvPayload,
   parseNdjsonLinesToCsvPayload,
@@ -115,6 +116,19 @@ describe("parseJsonArrayToCsvPayload", () => {
 describe("parseCsvText", () => {
   it("parses header row and rows", () => {
     const r = parseCsvText("id,name\n1,Ada\n");
+    expect(r).toEqual({
+      csv: {
+        headers: ["id", "name"],
+        rows: [{ id: "1", name: "Ada" }],
+      },
+    });
+  });
+});
+
+describe("parseCsvFromFile", () => {
+  it("parses a small CSV File with streaming step API", async () => {
+    const f = new File(["id,name\n1,Ada\n"], "sample.csv", { type: "text/csv" });
+    const r = await parseCsvFromFile(f);
     expect(r).toEqual({
       csv: {
         headers: ["id", "name"],

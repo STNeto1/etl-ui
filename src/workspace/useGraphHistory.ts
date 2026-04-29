@@ -8,22 +8,17 @@ import {
 } from "react";
 import type { Edge } from "@xyflow/react";
 import type { AppNode } from "../types/flow";
+import {
+  cloneGraphSnapshotStrippingCsv,
+  equalGraphSnapshotsIgnoringCsvPayload,
+  mergeSourceCsvFromLive,
+  type GraphSnapshot,
+} from "./graphSnapshotHistory";
 
-export type GraphSnapshot = { nodes: AppNode[]; edges: Edge[] };
+export type { GraphSnapshot };
 
 const HISTORY_DEBOUNCE_MS = 450;
 const MAX_HISTORY = 50;
-
-function cloneSnapshot(s: GraphSnapshot): GraphSnapshot {
-  return { nodes: structuredClone(s.nodes), edges: structuredClone(s.edges) };
-}
-
-function equalSnapshot(a: GraphSnapshot, b: GraphSnapshot): boolean {
-  return (
-    JSON.stringify(a.nodes) === JSON.stringify(b.nodes) &&
-    JSON.stringify(a.edges) === JSON.stringify(b.edges)
-  );
-}
 
 export function useGraphHistory(options: {
   hydrated: boolean;
@@ -47,7 +42,7 @@ export function useGraphHistory(options: {
   useEffect(() => {
     if (!hydrated || hydratedSeedRef.current) return;
     hydratedSeedRef.current = true;
-    lastSnapshotRef.current = cloneSnapshot({ nodes, edges });
+    lastSnapshotRef.current = cloneGraphSnapshotStrippingCsv({ nodes, edges });
     pastRef.current = [];
     futureRef.current = [];
   }, [hydrated, nodes, edges]);
@@ -59,18 +54,18 @@ export function useGraphHistory(options: {
       return;
     }
     const curr = { nodes, edges };
-    if (equalSnapshot(curr, lastSnapshotRef.current)) return;
+    if (equalGraphSnapshotsIgnoringCsvPayload(curr, lastSnapshotRef.current)) return;
 
     const timer = window.setTimeout(() => {
       if (applyingRef.current) return;
       const last = lastSnapshotRef.current;
       if (last == null) return;
       const now = { nodes, edges };
-      if (equalSnapshot(now, last)) return;
-      pastRef.current.push(cloneSnapshot(last));
+      if (equalGraphSnapshotsIgnoringCsvPayload(now, last)) return;
+      pastRef.current.push(cloneGraphSnapshotStrippingCsv(last));
       if (pastRef.current.length > MAX_HISTORY) pastRef.current.shift();
       futureRef.current = [];
-      lastSnapshotRef.current = cloneSnapshot(now);
+      lastSnapshotRef.current = cloneGraphSnapshotStrippingCsv(now);
       bumpStacks();
     }, HISTORY_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
@@ -81,8 +76,8 @@ export function useGraphHistory(options: {
       pastRef.current = [];
       futureRef.current = [];
       lastSnapshotRef.current = snapshot
-        ? cloneSnapshot(snapshot)
-        : cloneSnapshot({ nodes, edges });
+        ? cloneGraphSnapshotStrippingCsv(snapshot)
+        : cloneGraphSnapshotStrippingCsv({ nodes, edges });
       applyingRef.current = true;
       bumpStacks();
     },
@@ -93,11 +88,15 @@ export function useGraphHistory(options: {
     if (pastRef.current.length === 0) return;
     applyingRef.current = true;
     const prev = pastRef.current.pop()!;
-    const current = cloneSnapshot({ nodes, edges });
-    futureRef.current.push(current);
-    setNodes(prev.nodes);
+    const currentStripped = cloneGraphSnapshotStrippingCsv({ nodes, edges });
+    futureRef.current.push(currentStripped);
+    const mergedNodes = mergeSourceCsvFromLive(prev.nodes, nodes);
+    setNodes(mergedNodes);
     setEdges(prev.edges);
-    lastSnapshotRef.current = cloneSnapshot(prev);
+    lastSnapshotRef.current = cloneGraphSnapshotStrippingCsv({
+      nodes: mergedNodes,
+      edges: prev.edges,
+    });
     bumpStacks();
   }, [nodes, edges, setNodes, setEdges, bumpStacks]);
 
@@ -105,12 +104,16 @@ export function useGraphHistory(options: {
     if (futureRef.current.length === 0) return;
     applyingRef.current = true;
     const next = futureRef.current.pop()!;
-    const current = cloneSnapshot({ nodes, edges });
-    pastRef.current.push(current);
+    const currentStripped = cloneGraphSnapshotStrippingCsv({ nodes, edges });
+    pastRef.current.push(currentStripped);
     if (pastRef.current.length > MAX_HISTORY) pastRef.current.shift();
-    setNodes(next.nodes);
+    const mergedNodes = mergeSourceCsvFromLive(next.nodes, nodes);
+    setNodes(mergedNodes);
     setEdges(next.edges);
-    lastSnapshotRef.current = cloneSnapshot(next);
+    lastSnapshotRef.current = cloneGraphSnapshotStrippingCsv({
+      nodes: mergedNodes,
+      edges: next.edges,
+    });
     bumpStacks();
   }, [nodes, edges, setNodes, setEdges, bumpStacks]);
 

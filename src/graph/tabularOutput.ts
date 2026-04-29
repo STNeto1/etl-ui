@@ -170,6 +170,12 @@ function resolveNodeOutput(
       if (input == null) return null;
 
       const selected = selectNode.data.selectedColumns ?? [];
+      const allSameOrder =
+        selected.length === input.headers.length &&
+        selected.every((h, i) => h === input.headers[i]);
+      if (allSameOrder) {
+        return input;
+      }
       const headers = selected.filter((header) => input.headers.includes(header));
       const rows = input.rows.map((row) => {
         const selectedRow: Record<string, string> = {};
@@ -199,6 +205,10 @@ function resolveNodeOutput(
         column: c.column,
         target: c.target,
       }));
+      const hasEffectiveCast = casts.some((c) => c.column.trim().length > 0);
+      if (!hasEffectiveCast) {
+        return input;
+      }
       return applyCastToPayload(input, casts);
     }
     case "fillReplace": {

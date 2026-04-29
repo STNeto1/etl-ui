@@ -1,4 +1,11 @@
-import Papa from "papaparse";
+import Papa, { type Parser } from "papaparse";
+import {
+  fileTooLargeMessage,
+  getMaxCsvNdjsonBytes,
+  getMaxJsonBytes,
+  validateIngestPayload,
+  validateIngestRowCount,
+} from "../ingestLimits";
 import type { CsvPayload, HttpFetchKv } from "../types/flow";
 
 export { buildRequestUrl } from "./buildRequestUrl";
@@ -106,7 +113,12 @@ function objectsArrayToCsvPayload(items: unknown[]): { csv: CsvPayload } | { err
     }
     return row;
   });
-  return { csv: { headers, rows } };
+  const csv = { headers, rows };
+  const rowCheck = validateIngestPayload(csv);
+  if (rowCheck.ok === false) {
+    return { error: rowCheck.error };
+  }
+  return { csv };
 }
 
 /**
@@ -133,7 +145,9 @@ export function parseJsonArrayToCsvPayload(
               'We need a JSON array of row objects. The document root is not an array.\n\nFix one of:\n• Set “JSON array path” to the property that holds your rows (e.g. results if the body is {"results": [...] }).\n• Or use JSON whose top level is [...] with one object per row.\n\nThe source output stays off and downstream links from this node are dropped until a load succeeds.',
           }
       : extractArrayAtJsonPath(data, path);
-  if ("error" in extracted) return extracted;
+  if ("error" in extracted) {
+    return { error: extracted.error };
+  }
   return objectsArrayToCsvPayload(extracted.array);
 }
 
@@ -184,7 +198,83 @@ export function parseCsvText(text: string): { csv: CsvPayload } | { error: strin
   });
   const out = payloadFromParseResult(result);
   if ("error" in out) return out;
+  const rowCheck = validateIngestPayload(out.csv);
+  if (rowCheck.ok === false) {
+    return { error: rowCheck.error };
+  }
   return { csv: out.csv };
+}
+
+/**
+ * Stream-parse a local CSV file with Papa Parse (avoids holding Papa's full `result.data` alongside our rows).
+ */
+export function parseCsvFromFile(file: File): Promise<{ csv: CsvPayload } | { error: string }> {
+  const maxBytes = getMaxCsvNdjsonBytes();
+  if (file.size > maxBytes) {
+    return Promise.resolve({ error: fileTooLargeMessage(maxBytes, file.size) });
+  }
+  return new Promise((resolve) => {
+    const rows: Record<string, string>[] = [];
+    let headers: string[] = [];
+    let hardError: string | null = null;
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: "greedy",
+      transformHeader: (h) => h.trim(),
+      step: (result, parser: Parser) => {
+        if (hardError != null) return;
+        if (result.errors.length > 0) {
+          hardError = result.errors.map((e) => e.message).join("; ");
+          parser.abort();
+          return;
+        }
+        const fields = result.meta.fields ?? [];
+        if (headers.length === 0 && fields.length > 0) {
+          headers = fields.filter((f): f is string => Boolean(f?.trim()));
+        }
+        const row = result.data;
+        if (row == null || typeof row !== "object" || Array.isArray(row)) return;
+        if (!Object.values(row).some((v) => String(v ?? "").trim() !== "")) return;
+        rows.push(row);
+        const chk = validateIngestRowCount(rows.length);
+        if (chk.ok === false) {
+          hardError = chk.error;
+          parser.abort();
+        }
+      },
+      complete: () => {
+        if (hardError != null) {
+          resolve({ error: hardError });
+          return;
+        }
+        const csv = { headers, rows };
+        const rowCheck = validateIngestPayload(csv);
+        if (rowCheck.ok === false) {
+          resolve({ error: rowCheck.error });
+          return;
+        }
+        resolve({ csv });
+      },
+      error: (err) => {
+        resolve({ error: err.message ?? String(err) });
+      },
+    });
+  });
+}
+
+function ingestMaxBytesForHttpResponse(contentType: string | null, bodyTrimmed: string): number {
+  const ct = (contentType ?? "").toLowerCase();
+  const t = bodyTrimmed;
+  const nd = ct.includes("x-ndjson") || ct.includes("ndjson") || ct.includes("newline-delimited");
+  if (nd) return getMaxCsvNdjsonBytes();
+  const looksJson =
+    ct.includes("application/json") ||
+    ct.includes("+json") ||
+    (t.startsWith("{") && t.endsWith("}")) ||
+    (t.startsWith("[") && t.endsWith("]"));
+  if (looksJson) return getMaxJsonBytes();
+  return getMaxCsvNdjsonBytes();
 }
 
 export type ParseResponseBodyOptions = {
@@ -378,6 +468,19 @@ export async function fetchToCsvPayload(
         }
         window.clearTimeout(timeoutId);
         return err;
+      }
+
+      const trimmed = text.trim();
+      const maxBodyBytes = ingestMaxBytesForHttpResponse(contentType, trimmed);
+      if (bodyByteLength > maxBodyBytes) {
+        window.clearTimeout(timeoutId);
+        return {
+          ok: false,
+          error: fileTooLargeMessage(maxBodyBytes, bodyByteLength),
+          status: res.status,
+          contentType,
+          responseBodySnippet: truncateForParseErrorPreview(text),
+        };
       }
 
       const parsed = parseResponseBody(text, contentType, { jsonArrayPath });
