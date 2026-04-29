@@ -9,16 +9,16 @@ describe("workspaceFile", () => {
     expect(buildWorkspaceExportFilename("   ")).toBe("etl-ui-workspace.json");
   });
 
-  it("parseWorkspaceJsonText roundtrips a snapshot", () => {
+  it("parseWorkspaceJsonText roundtrips a snapshot", async () => {
     const { nodes, edges } = getBlankWorkspaceGraph();
     const json = JSON.stringify(serializeWorkspaceSnapshot(nodes, edges));
-    const snap = parseWorkspaceJsonText(json);
+    const snap = await parseWorkspaceJsonText(json);
     expect(snap).not.toBeNull();
     expect(snap!.nodes.length).toBe(nodes.length);
     expect(snap!.edges.length).toBe(edges.length);
   });
 
-  it("parseWorkspaceJsonText returns null for invalid JSON", () => {
-    expect(parseWorkspaceJsonText("not json")).toBeNull();
+  it("parseWorkspaceJsonText returns null for invalid JSON", async () => {
+    expect(await parseWorkspaceJsonText("not json")).toBeNull();
   });
 });

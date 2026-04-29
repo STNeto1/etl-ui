@@ -1,6 +1,6 @@
 import type { Edge } from "@xyflow/react";
-import type { AppNode, CsvSourceNode } from "../types/flow";
-import { CSV_SOURCE_NODE_ID } from "../types/flow";
+import type { AppNode, DataSourceData, DataSourceNode } from "../types/flow";
+import { DATA_SOURCE_NODE_ID } from "../types/flow";
 
 export type GraphSnapshot = { nodes: AppNode[]; edges: Edge[] };
 
@@ -43,11 +43,22 @@ function fingerprintCsvPayload(csv: { headers: string[]; rows: unknown[] } | nul
   };
 }
 
+function fingerprintDataSourceForHistory(d: DataSourceData): unknown {
+  if (d.csv != null) {
+    return { ...d, csv: fingerprintCsvPayload(d.csv) };
+  }
+  return {
+    ...d,
+    sample: d.sample.slice(0, 3),
+    csv: null,
+  };
+}
+
 /** Build a comparable plain object for one node (avoids cloning megabyte `data.csv`). */
 export function nodeToHistoryCompareShape(n: AppNode): unknown {
-  if (n.type === "csvSource") {
-    const raw = n as CsvSourceNode;
-    return { ...raw, data: { ...raw.data, csv: fingerprintCsvPayload(raw.data.csv) } };
+  if (n.type === "dataSource") {
+    const raw = n as DataSourceNode;
+    return { ...raw, data: fingerprintDataSourceForHistory(raw.data) };
   }
   return n;
 }
@@ -69,12 +80,12 @@ export function equalGraphSnapshotsIgnoringCsvPayload(a: GraphSnapshot, b: Graph
 }
 
 /**
- * Clone a snapshot for the undo stack without copying `csvSource.data.csv` (saves heap).
+ * Clone a snapshot for the undo stack without copying `dataSource.data.csv` (saves heap).
  * Other nodes are deep-cloned.
  */
 export function cloneGraphSnapshotStrippingCsv(s: GraphSnapshot): GraphSnapshot {
   const nodes = s.nodes.map((n) => {
-    if (n.type === "csvSource") {
+    if (n.type === "dataSource") {
       const { csv: _omit, ...restData } = n.data;
       return structuredClone({ ...n, data: { ...restData, csv: null } }) as AppNode;
     }
@@ -89,16 +100,22 @@ export function cloneGraphSnapshotStrippingCsv(s: GraphSnapshot): GraphSnapshot 
  */
 export function mergeSourceCsvFromLive(snapshotNodes: AppNode[], liveNodes: AppNode[]): AppNode[] {
   const liveSource = liveNodes.find(
-    (n): n is CsvSourceNode => n.id === CSV_SOURCE_NODE_ID && n.type === "csvSource",
+    (n): n is DataSourceNode => n.id === DATA_SOURCE_NODE_ID && n.type === "dataSource",
   );
   if (liveSource == null) return snapshotNodes;
   return snapshotNodes.map((n) => {
-    if (n.id === CSV_SOURCE_NODE_ID && n.type === "csvSource") {
+    if (n.id === DATA_SOURCE_NODE_ID && n.type === "dataSource") {
+      const ld = liveSource.data;
       return {
         ...n,
         data: {
-          ...(n as CsvSourceNode).data,
-          csv: liveSource.data.csv,
+          ...(n as DataSourceNode).data,
+          csv: ld.csv,
+          datasetId: ld.datasetId,
+          format: ld.format,
+          headers: ld.headers,
+          rowCount: ld.rowCount,
+          sample: ld.sample,
         },
       } as AppNode;
     }

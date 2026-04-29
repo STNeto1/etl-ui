@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
 import {
-  defaultCsvSourceData,
+  defaultDataSourceData,
   type AggregateMetricDef,
   type AppNode,
   type ComputeColumnDef,
@@ -15,13 +15,13 @@ import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/b
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
 
-function csvSourceNode(id: string, csv: CsvPayload): AppNode {
+function dataSourceNode(id: string, csv: CsvPayload): AppNode {
   return {
     id,
-    type: "csvSource",
+    type: "dataSource",
     position: { x: 0, y: 0 },
     data: {
-      ...defaultCsvSourceData(),
+      ...defaultDataSourceData(),
       csv,
       source: "template",
       loadedAt: Date.now(),
@@ -328,11 +328,11 @@ function edge(
 describe("getTabularOutput mergeUnion", () => {
   it("merges rows when headers match", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "name"],
         rows: [{ id: "2", name: "Lin" }],
       }),
@@ -352,11 +352,11 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("unions mismatched headers and fills missing values", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "city"],
         rows: [{ id: "2", city: "Lima" }],
       }),
@@ -377,11 +377,11 @@ describe("getTabularOutput mergeUnion", () => {
   it("dedupes by full row values", () => {
     const duplicate = { id: "1", name: "Ada" };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [duplicate],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "name"],
         rows: [duplicate, { id: "2", name: "Lin" }],
       }),
@@ -398,14 +398,14 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("dedupes by selected key columns", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name", "city"],
         rows: [
           { id: "1", name: "Ada", city: "Lima" },
           { id: "2", name: "Lin", city: "Quito" },
         ],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "name", "city"],
         rows: [
           { id: "1", name: "Ada Updated", city: "Cusco" },
@@ -430,11 +430,11 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("treats missing selected-key columns as empty string", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["name"],
         rows: [{ name: "Ada" }],
       }),
@@ -455,11 +455,11 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports CSV -> MergeUnion <- CSV -> Visualization flow", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "name"],
         rows: [{ id: "2", name: "Lin" }],
       }),
@@ -481,14 +481,14 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports CSV -> Filter -> MergeUnion <- CSV -> Visualization flow", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
           { id: "2", name: "Lin" },
         ],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "name"],
         rows: [{ id: "3", name: "Max" }],
       }),
@@ -512,14 +512,14 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports CSV -> Filter -> MergeUnion -> Download sink resolution", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
           { id: "2", name: "Lin" },
         ],
       }),
-      csvSourceNode("src-2", {
+      dataSourceNode("src-2", {
         headers: ["id", "name"],
         rows: [{ id: "3", name: "Max" }],
       }),
@@ -545,7 +545,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("routes matching rows to if branch", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
@@ -566,7 +566,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("routes non-matching rows to else branch", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
@@ -591,7 +591,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports merging if and else branches from one conditional node", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
@@ -620,7 +620,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("keeps only selected columns", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name", "city"],
         rows: [{ id: "1", name: "Ada", city: "Lima" }],
       }),
@@ -637,7 +637,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("preserves selected column order", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name", "city"],
         rows: [{ id: "1", name: "Ada", city: "Lima" }],
       }),
@@ -652,7 +652,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("ignores missing selected columns", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
@@ -669,7 +669,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports CSV -> SelectColumns -> Visualization flow", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name", "city"],
         rows: [
           { id: "1", name: "Ada", city: "Lima" },
@@ -689,7 +689,7 @@ describe("getTabularOutput mergeUnion", () => {
   });
 
   it("sorts by one key ascending and descending", () => {
-    const source = csvSourceNode("src-1", {
+    const source = dataSourceNode("src-1", {
       headers: ["id", "name"],
       rows: [
         { id: "2", name: "Lin" },
@@ -719,7 +719,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("sorts by multi-key priority order", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["group", "score", "name"],
         rows: [
           { group: "A", score: "8", name: "Lin" },
@@ -746,7 +746,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("auto-compares numerically when both values are numeric", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["value"],
         rows: [{ value: "10" }, { value: "2" }, { value: "A" }],
       }),
@@ -762,7 +762,7 @@ describe("getTabularOutput mergeUnion", () => {
   });
 
   it("keeps empty values last regardless of sort direction", () => {
-    const source = csvSourceNode("src-1", {
+    const source = dataSourceNode("src-1", {
       headers: ["id", "score"],
       rows: [
         { id: "a", score: "" },
@@ -795,7 +795,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports CSV -> Sort -> Visualization flow", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "2", name: "Lin" },
@@ -815,7 +815,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("emits a row to multiple Switch branches when multiple rules match", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
@@ -851,7 +851,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("routes non-matching rows to Switch default only", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
@@ -878,7 +878,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it('routes non-matching rows for legacy Switch edges with sourceHandle "default"', () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [
           { id: "1", name: "Ada" },
@@ -902,7 +902,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("supports CSV -> Switch -> Visualization on a branch handle", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "2", name: "Lin" }],
       }),
@@ -926,7 +926,7 @@ describe("getTabularOutput mergeUnion", () => {
 
   it("merges rows from two Switch branch outputs", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
@@ -964,7 +964,7 @@ describe("getTabularOutput mergeUnion", () => {
 describe("getTabularOutput computeColumn", () => {
   it("adds computed columns from templates", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["First Name", "Last Name"],
         rows: [{ "First Name": "Ada", "Last Name": "Lovelace" }],
       }),
@@ -982,7 +982,7 @@ describe("getTabularOutput computeColumn", () => {
 
   it("evaluates arithmetic in compute column definitions", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["qty", "price"],
         rows: [
           { qty: "2", price: "4" },
@@ -1004,7 +1004,7 @@ describe("getTabularOutput computeColumn", () => {
 
   it("treats unknown placeholders as empty in compute column", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id"],
         rows: [{ id: "1" }],
       }),
@@ -1017,7 +1017,7 @@ describe("getTabularOutput computeColumn", () => {
 
   it("applies compute definitions in order for chained outputs", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["a"],
         rows: [{ a: "x" }],
       }),
@@ -1035,7 +1035,7 @@ describe("getTabularOutput computeColumn", () => {
 
   it("overwrites an existing column when outputName matches", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id"],
         rows: [{ id: "1" }],
       }),
@@ -1051,7 +1051,7 @@ describe("getTabularOutput computeColumn", () => {
 
   it("supports CSV -> ComputeColumn -> Visualization", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
@@ -1069,7 +1069,7 @@ describe("getTabularOutput computeColumn", () => {
 
   it("extends headers for compute column when there are zero rows", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id"],
         rows: [],
       }),
@@ -1087,7 +1087,7 @@ describe("getTabularOutput computeColumn", () => {
 describe("getTabularOutput aggregate", () => {
   it("groups and sums through the graph", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["region", "amount"],
         rows: [
           { region: "E", amount: "10" },
@@ -1114,7 +1114,7 @@ describe("getTabularOutput aggregate", () => {
 
   it("supports CSV -> Aggregate -> Visualization", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["k", "v"],
         rows: [
           { k: "a", v: "1" },
@@ -1144,11 +1144,11 @@ describe("getTabularOutput aggregate", () => {
 describe("getTabularOutput join", () => {
   it("inner join matches on key and merges columns with disambiguation", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", {
+      dataSourceNode("src-L", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Ada" }],
       }),
-      csvSourceNode("src-R", {
+      dataSourceNode("src-R", {
         headers: ["id", "name"],
         rows: [{ id: "1", name: "Bea" }],
       }),
@@ -1170,11 +1170,11 @@ describe("getTabularOutput join", () => {
 
   it("inner join yields no rows when no key match", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", {
+      dataSourceNode("src-L", {
         headers: ["id"],
         rows: [{ id: "1" }],
       }),
-      csvSourceNode("src-R", {
+      dataSourceNode("src-R", {
         headers: ["id"],
         rows: [{ id: "2" }],
       }),
@@ -1193,14 +1193,14 @@ describe("getTabularOutput join", () => {
 
   it("left join keeps unmatched left rows with empty right-side cells", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", {
+      dataSourceNode("src-L", {
         headers: ["id", "side"],
         rows: [
           { id: "1", side: "L" },
           { id: "2", side: "L" },
         ],
       }),
-      csvSourceNode("src-R", {
+      dataSourceNode("src-R", {
         headers: ["id", "extra"],
         rows: [{ id: "1", extra: "x" }],
       }),
@@ -1225,14 +1225,14 @@ describe("getTabularOutput join", () => {
 
   it("matches on composite key pairs", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", {
+      dataSourceNode("src-L", {
         headers: ["a", "b", "v"],
         rows: [
           { a: "1", b: "2", v: "ok" },
           { a: "1", b: "9", v: "skip" },
         ],
       }),
-      csvSourceNode("src-R", {
+      dataSourceNode("src-R", {
         headers: ["x", "y", "w"],
         rows: [{ x: "1", y: "2", w: "R" }],
       }),
@@ -1255,11 +1255,11 @@ describe("getTabularOutput join", () => {
 
   it("produces cartesian rows for duplicate keys on both sides (inner)", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", {
+      dataSourceNode("src-L", {
         headers: ["k"],
         rows: [{ k: "1" }, { k: "1" }],
       }),
-      csvSourceNode("src-R", {
+      dataSourceNode("src-R", {
         headers: ["k"],
         rows: [{ k: "1" }, { k: "1" }],
       }),
@@ -1275,8 +1275,8 @@ describe("getTabularOutput join", () => {
 
   it("returns null when join inputs lack distinct target handles", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
-      csvSourceNode("src-R", { headers: ["id"], rows: [{ id: "1" }] }),
+      dataSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
+      dataSourceNode("src-R", { headers: ["id"], rows: [{ id: "1" }] }),
       joinNode("join-1", { keyPairs: [{ leftColumn: "id", rightColumn: "id" }] }),
     ];
     const edges = [edge("eL", "src-L", "join-1"), edge("eR", "src-R", "join-1")];
@@ -1286,7 +1286,7 @@ describe("getTabularOutput join", () => {
 
   it("returns null when only one side is connected with correct handle", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
+      dataSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
       joinNode("join-1", { keyPairs: [{ leftColumn: "id", rightColumn: "id" }] }),
     ];
     const edges = [edge("eL", "src-L", "join-1", undefined, JOIN_LEFT_TARGET)];
@@ -1296,8 +1296,8 @@ describe("getTabularOutput join", () => {
 
   it("returns null when key pairs are empty", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
-      csvSourceNode("src-R", { headers: ["id"], rows: [{ id: "1" }] }),
+      dataSourceNode("src-L", { headers: ["id"], rows: [{ id: "1" }] }),
+      dataSourceNode("src-R", { headers: ["id"], rows: [{ id: "1" }] }),
       joinNode("join-1", { keyPairs: [] }),
     ];
     const edges = [
@@ -1310,11 +1310,11 @@ describe("getTabularOutput join", () => {
 
   it("supports CSV -> Join -> Visualization", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-L", {
+      dataSourceNode("src-L", {
         headers: ["id", "a"],
         rows: [{ id: "1", a: "L" }],
       }),
-      csvSourceNode("src-R", {
+      dataSourceNode("src-R", {
         headers: ["id", "b"],
         rows: [{ id: "1", b: "R" }],
       }),
@@ -1333,16 +1333,16 @@ describe("getTabularOutput join", () => {
   });
 });
 
-describe("getTabularOutput csvSource http", () => {
+describe("getTabularOutput dataSource http", () => {
   it("returns data loaded from HTTP source fields on csv source", () => {
     const payload: CsvPayload = { headers: ["a"], rows: [{ a: "1" }] };
     const nodes: AppNode[] = [
       {
         id: "csv-remote",
-        type: "csvSource",
+        type: "dataSource",
         position: { x: 0, y: 0 },
         data: {
-          ...defaultCsvSourceData(),
+          ...defaultDataSourceData(),
           csv: payload,
           source: "http",
           fileName: "api.example.com",
@@ -1359,10 +1359,10 @@ describe("getTabularOutput csvSource http", () => {
     const nodes: AppNode[] = [
       {
         id: "csv-rn",
-        type: "csvSource",
+        type: "dataSource",
         position: { x: 0, y: 0 },
         data: {
-          ...defaultCsvSourceData(),
+          ...defaultDataSourceData(),
           csv: payload,
           source: "http",
           httpColumnRenames: [{ id: "1", fromColumn: "old", toColumn: "new" }],
@@ -1383,7 +1383,7 @@ describe("getTabularOutput renameColumns", () => {
       rows: [{ id: "1", name: "Ada" }],
     };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", payload),
+      dataSourceNode("src-1", payload),
       renameColumnsNode("rn-1", [{ id: "r1", fromColumn: "name", toColumn: "full_name" }]),
     ];
     const edges = [edge("e1", "src-1", "rn-1")];
@@ -1399,7 +1399,7 @@ describe("getTabularOutput renameColumns", () => {
       rows: [{ a: "1", b: "2" }],
     };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", payload),
+      dataSourceNode("src-1", payload),
       renameColumnsNode("rn-1", [
         { id: "1", fromColumn: "a", toColumn: "x" },
         { id: "2", fromColumn: "x", toColumn: "z" },
@@ -1423,7 +1423,7 @@ describe("getTabularOutput castColumns", () => {
       ],
     };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", payload),
+      dataSourceNode("src-1", payload),
       castColumnsNode("c-1", [
         { id: "1", column: "n", target: "integer" },
         { id: "2", column: "f", target: "number" },
@@ -1445,7 +1445,7 @@ describe("getTabularOutput castColumns", () => {
       rows: [{ b: "YES", d: "2024-06-01T00:00:00Z" }],
     };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", payload),
+      dataSourceNode("src-1", payload),
       castColumnsNode("c-1", [
         { id: "1", column: "b", target: "boolean" },
         { id: "2", column: "d", target: "date" },
@@ -1469,7 +1469,7 @@ describe("getTabularOutput fillReplace", () => {
       ],
     };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", payload),
+      dataSourceNode("src-1", payload),
       fillReplaceNode(
         "fr-1",
         [{ id: "f1", column: "id", fillValue: "0" }],
@@ -1492,7 +1492,7 @@ describe("getTabularOutput fillReplace", () => {
       rows: [{ a: "x", b: "x" }],
     };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", payload),
+      dataSourceNode("src-1", payload),
       fillReplaceNode("fr-1", [], [{ id: "r1", column: null, from: "x", to: "y" }]),
     ];
     const edges = [edge("e1", "src-1", "fr-1")];
@@ -1507,7 +1507,7 @@ describe("getTabularOutput deduplicate", () => {
   it("dedupes a single upstream by full row", () => {
     const dup = { id: "1", name: "Ada" };
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "name"],
         rows: [dup, dup, { id: "2", name: "Lin" }],
       }),
@@ -1526,7 +1526,7 @@ describe("getTabularOutput deduplicate", () => {
       { id: "1", name: "B" },
     ];
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", { headers: ["id", "name"], rows }),
+      dataSourceNode("src-1", { headers: ["id", "name"], rows }),
       deduplicateNode("dd-1", { dedupeMode: "keyColumns", dedupeKeys: [] }),
     ];
     const edges = [edge("e1", "src-1", "dd-1")];
@@ -1540,7 +1540,7 @@ describe("getTabularOutput deduplicate", () => {
 describe("getTabularOutput limitSample", () => {
   it("returns first N rows", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["n"],
         rows: [{ n: "0" }, { n: "1" }, { n: "2" }],
       }),
@@ -1556,7 +1556,7 @@ describe("getTabularOutput limitSample", () => {
   it("returns deterministic random sample for a fixed seed", () => {
     const rows = [{ n: "0" }, { n: "1" }, { n: "2" }, { n: "3" }, { n: "4" }];
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", { headers: ["n"], rows }),
+      dataSourceNode("src-1", { headers: ["n"], rows }),
       limitSampleNode("ls-1", { limitSampleMode: "random", rowCount: 3, randomSeed: 42 }),
     ];
     const edges = [edge("e1", "src-1", "ls-1")];
@@ -1570,7 +1570,7 @@ describe("getTabularOutput limitSample", () => {
 describe("getTabularOutput unnestArray", () => {
   it("explodes a JSON array column", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "tags"],
         rows: [{ id: "1", tags: '["a","b"]' }],
       }),
@@ -1590,7 +1590,7 @@ describe("getTabularOutput unnestArray", () => {
 describe("getTabularOutput constantColumn", () => {
   it("adds constant columns from upstream", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id"],
         rows: [{ id: "1" }],
       }),
@@ -1607,7 +1607,7 @@ describe("getTabularOutput constantColumn", () => {
 describe("getTabularOutput pivotUnpivot", () => {
   it("unpivots via graph", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "a", "b"],
         rows: [{ id: "x", a: "1", b: "2" }],
       }),
@@ -1630,7 +1630,7 @@ describe("getTabularOutput pivotUnpivot", () => {
 
   it("pivots via graph", () => {
     const nodes: AppNode[] = [
-      csvSourceNode("src-1", {
+      dataSourceNode("src-1", {
         headers: ["id", "metric", "val"],
         rows: [
           { id: "1", metric: "x", val: "10" },

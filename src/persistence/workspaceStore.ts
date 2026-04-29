@@ -84,7 +84,7 @@ async function ensureMigrated(db: IDBDatabase): Promise<void> {
   }
 
   const legacyRaw = await requestToPromise(store.get(DEFAULT_WORKSPACE_ID));
-  const deserialized = deserializeWorkspaceSnapshot(legacyRaw);
+  const deserialized = await deserializeWorkspaceSnapshot(legacyRaw);
   const now = Date.now();
   const blank = getBlankWorkspaceGraph();
 
@@ -165,7 +165,7 @@ export async function loadWorkspaceSnapshot(
     const raw = await requestToPromise(store.get(workspaceId));
     await transactionDone(tx);
     db.close();
-    return deserializeWorkspaceSnapshot(raw);
+    return await deserializeWorkspaceSnapshot(raw);
   } catch {
     return null;
   }

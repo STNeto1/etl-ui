@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { AppNode } from "../types/flow";
-import { CSV_SOURCE_NODE_ID, defaultCsvSourceData, defaultFilterData } from "../types/flow";
+import { DATA_SOURCE_NODE_ID, defaultDataSourceData, defaultFilterData } from "../types/flow";
 import { resetGraph } from "./resetGraph";
 
 describe("resetGraph", () => {
   it("keeps only csv source with edges cleared and preserves data by default", () => {
     const csvNode: AppNode = {
-      id: CSV_SOURCE_NODE_ID,
-      type: "csvSource",
+      id: DATA_SOURCE_NODE_ID,
+      type: "dataSource",
       position: { x: 12, y: 34 },
       data: {
-        ...defaultCsvSourceData(),
+        ...defaultDataSourceData(),
         csv: { headers: ["a"], rows: [{ a: "1" }] },
         fileName: "x.csv",
       },
@@ -23,15 +23,15 @@ describe("resetGraph", () => {
     };
     const { nodes, edges } = resetGraph(
       [other, csvNode],
-      [{ id: "e1", source: CSV_SOURCE_NODE_ID, target: "f1" }],
+      [{ id: "e1", source: DATA_SOURCE_NODE_ID, target: "f1" }],
       { resetSource: false },
     );
     expect(edges).toEqual([]);
     expect(nodes).toHaveLength(1);
-    expect(nodes[0]?.id).toBe(CSV_SOURCE_NODE_ID);
+    expect(nodes[0]?.id).toBe(DATA_SOURCE_NODE_ID);
     expect(nodes[0]?.position).toEqual({ x: 12, y: 34 });
-    expect(nodes[0]?.type).toBe("csvSource");
-    if (nodes[0]?.type === "csvSource") {
+    expect(nodes[0]?.type).toBe("dataSource");
+    if (nodes[0]?.type === "dataSource") {
       expect(nodes[0].data.csv).toEqual({ headers: ["a"], rows: [{ a: "1" }] });
       expect(nodes[0].data.fileName).toBe("x.csv");
     }
@@ -39,19 +39,19 @@ describe("resetGraph", () => {
 
   it("resetSource clears csv data but keeps position", () => {
     const csvNode: AppNode = {
-      id: CSV_SOURCE_NODE_ID,
-      type: "csvSource",
+      id: DATA_SOURCE_NODE_ID,
+      type: "dataSource",
       position: { x: 5, y: 6 },
       data: {
-        ...defaultCsvSourceData(),
+        ...defaultDataSourceData(),
         csv: { headers: ["a"], rows: [{ a: "1" }] },
         httpUrl: "https://example.com",
       },
     };
     const { nodes } = resetGraph([csvNode], [], { resetSource: true });
     expect(nodes[0]?.position).toEqual({ x: 5, y: 6 });
-    if (nodes[0]?.type === "csvSource") {
-      expect(nodes[0].data).toEqual(defaultCsvSourceData());
+    if (nodes[0]?.type === "dataSource") {
+      expect(nodes[0].data).toEqual(defaultDataSourceData());
     }
   });
 
@@ -59,9 +59,9 @@ describe("resetGraph", () => {
     const { nodes, edges } = resetGraph([], [], { resetSource: false });
     expect(edges).toEqual([]);
     expect(nodes).toHaveLength(1);
-    expect(nodes[0]?.type).toBe("csvSource");
-    if (nodes[0]?.type === "csvSource") {
-      expect(nodes[0].data).toEqual(defaultCsvSourceData());
+    expect(nodes[0]?.type).toBe("dataSource");
+    if (nodes[0]?.type === "dataSource") {
+      expect(nodes[0].data).toEqual(defaultDataSourceData());
     }
   });
 });

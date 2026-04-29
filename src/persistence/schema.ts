@@ -4,7 +4,7 @@ import type {
   AppNode,
   CastTarget,
   ConstantColumnDef,
-  CsvSourceData,
+  DataSourceData,
   FilterOp,
   HttpColumnRename,
   JoinKind,
@@ -13,13 +13,13 @@ import type {
   SortDirection,
 } from "../types/flow";
 import {
-  CSV_SOURCE_NODE_ID,
+  DATA_SOURCE_NODE_ID,
   defaultAggregateData,
   defaultCastColumnsData,
   defaultComputeColumnData,
   defaultConditionalData,
   defaultConstantColumnData,
-  defaultCsvSourceData,
+  defaultDataSourceData,
   defaultDownloadData,
   defaultDeduplicateData,
   defaultFillReplaceData,
@@ -35,8 +35,32 @@ import {
   defaultUnnestArrayData,
   defaultVisualizationData,
 } from "../types/flow";
+import { createDatasetStore } from "../dataset/datasetStore";
+import { hydrateDataSourceCsvRows } from "../dataset/hydrateNodes";
+import type { DatasetFormat } from "../dataset/types";
 
-export const WORKSPACE_SCHEMA_VERSION = 1 as const;
+export const WORKSPACE_SCHEMA_VERSION = 3 as const;
+
+/** Rewrite persisted v1 graph shape (csvSource / csv-source) to v2 (dataSource / data-source). */
+function migrateWorkspaceRawV1ToV2InPlace(raw: Record<string, unknown>): void {
+  raw.version = 2;
+  const nodes = raw.nodes;
+  if (Array.isArray(nodes)) {
+    for (const entry of nodes) {
+      if (!isRecord(entry)) continue;
+      if (asString(entry.type) === "csvSource") entry.type = "dataSource";
+      if (asString(entry.id) === "csv-source") entry.id = "data-source";
+    }
+  }
+  const edges = raw.edges;
+  if (Array.isArray(edges)) {
+    for (const entry of edges) {
+      if (!isRecord(entry)) continue;
+      if (asString(entry.source) === "csv-source") entry.source = "data-source";
+      if (asString(entry.target) === "csv-source") entry.target = "data-source";
+    }
+  }
+}
 
 export type WorkspaceSnapshot = {
   version: number;
@@ -81,6 +105,79 @@ function sanitizeCsvPayload(
       return normalized;
     });
   return { headers, rows };
+}
+
+const SAMPLE_CAP = 50;
+
+function sampleRowsFromPayload(rows: Record<string, string>[]): Record<string, string>[] {
+  return rows.slice(0, SAMPLE_CAP).map((r) => ({ ...r }));
+}
+
+function sanitizeSampleRows(value: unknown): Record<string, string>[] {
+  if (!Array.isArray(value)) return [];
+  const out: Record<string, string>[] = [];
+  for (const row of value.slice(0, SAMPLE_CAP)) {
+    if (!isRecord(row)) continue;
+    const normalized: Record<string, string> = {};
+    for (const [key, cell] of Object.entries(row)) {
+      normalized[key] = String(cell ?? "");
+    }
+    out.push(normalized);
+  }
+  return out;
+}
+
+function inferDatasetFormatFromSourceData(data: Record<string, unknown>): DatasetFormat {
+  const name = (asString(data.fileName) ?? "").toLowerCase();
+  if (name.endsWith(".ndjson")) return "ndjson";
+  if (name.endsWith(".json")) return "json";
+  return "csv";
+}
+
+async function migrateV2DataSourcesToDatasetRefs(nodes: AppNode[]): Promise<AppNode[]> {
+  const store = createDatasetStore();
+  const next: AppNode[] = [];
+  for (const node of nodes) {
+    if (node.type !== "dataSource") {
+      next.push(node);
+      continue;
+    }
+    const d = node.data;
+    if (d.datasetId != null) {
+      next.push(node);
+      continue;
+    }
+    const csv = d.csv;
+    if (csv != null && csv.rows.length > 0) {
+      const format = inferDatasetFormatFromSourceData(d as unknown as Record<string, unknown>);
+      const meta = await store.putNormalizedPayload(csv, format);
+      next.push({
+        ...node,
+        data: {
+          ...d,
+          datasetId: meta.id,
+          format: meta.format,
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+          csv,
+        },
+      });
+    } else {
+      next.push({
+        ...node,
+        data: {
+          ...d,
+          datasetId: d.datasetId ?? null,
+          format: d.format ?? null,
+          headers: d.headers.length > 0 ? d.headers : (csv?.headers ?? []),
+          rowCount: d.rowCount > 0 ? d.rowCount : (csv?.rows.length ?? 0),
+          sample: d.sample.length > 0 ? d.sample : csv ? sampleRowsFromPayload(csv.rows) : [],
+        },
+      });
+    }
+  }
+  return next;
 }
 
 function sanitizeHttpKvList(value: unknown): { id: string; key: string; value: string }[] {
@@ -201,9 +298,30 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
   if (id == null || type == null || x == null || y == null) return null;
   const data = isRecord(rawNode.data) ? rawNode.data : {};
 
-  if (type === "csvSource") {
-    const defaults = defaultCsvSourceData();
+  if (type === "dataSource") {
+    const defaults = defaultDataSourceData();
     const csv = sanitizeCsvPayload(data.csv);
+    const datasetId = asString(data.datasetId) ?? defaults.datasetId;
+    const formatRaw = asString(data.format);
+    const format: DataSourceData["format"] =
+      formatRaw === "csv" || formatRaw === "json" || formatRaw === "ndjson"
+        ? formatRaw
+        : defaults.format;
+    const headersFromDisk = asStringArray(data.headers);
+    const headers =
+      headersFromDisk.length > 0 ? headersFromDisk : (csv?.headers ?? defaults.headers);
+    const rowCountRaw = asNumber(data.rowCount);
+    const rowCount =
+      rowCountRaw != null && rowCountRaw >= 0
+        ? Math.floor(rowCountRaw)
+        : (csv?.rows.length ?? defaults.rowCount);
+    const sampleFromDisk = sanitizeSampleRows(data.sample);
+    const sample =
+      sampleFromDisk.length > 0
+        ? sampleFromDisk
+        : csv
+          ? sampleRowsFromPayload(csv.rows)
+          : defaults.sample;
     const sourceRaw = data.source;
     const source =
       sourceRaw === "file" || sourceRaw === "template" || sourceRaw === "http"
@@ -215,7 +333,7 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
     const httpMaxRetries = asNumber(data.httpMaxRetries);
     const httpAutoRefreshSec = asNumber(data.httpAutoRefreshSec);
     const httpLastDiagnosticsRaw = data.httpLastDiagnostics;
-    let httpLastDiagnostics: CsvSourceData["httpLastDiagnostics"] = defaults.httpLastDiagnostics;
+    let httpLastDiagnostics: DataSourceData["httpLastDiagnostics"] = defaults.httpLastDiagnostics;
     if (isRecord(httpLastDiagnosticsRaw)) {
       const st = asNumber(httpLastDiagnosticsRaw.status);
       const bodyByteLength = asNumber(httpLastDiagnosticsRaw.bodyByteLength);
@@ -231,9 +349,14 @@ function sanitizeNode(rawNode: unknown): AppNode | null {
     }
     return {
       id,
-      type: "csvSource",
+      type: "dataSource",
       position: { x, y },
       data: {
+        datasetId,
+        format,
+        headers,
+        rowCount,
+        sample,
         csv: csv ?? defaults.csv,
         source,
         fileName: asString(data.fileName),
@@ -718,36 +841,42 @@ function sanitizeEdge(rawEdge: unknown): Edge | null {
   };
 }
 
-function ensureRequiredCsvSource(nodes: AppNode[]): AppNode[] {
+function ensureRequiredDataSource(nodes: AppNode[]): AppNode[] {
   const fixedSource = nodes.find(
-    (node) => node.id === CSV_SOURCE_NODE_ID && node.type === "csvSource",
+    (node) => node.id === DATA_SOURCE_NODE_ID && node.type === "dataSource",
   );
-  const withoutFixed = nodes.filter((node) => node.id !== CSV_SOURCE_NODE_ID);
+  const withoutFixed = nodes.filter((node) => node.id !== DATA_SOURCE_NODE_ID);
   if (fixedSource != null) {
     return [fixedSource, ...withoutFixed];
   }
   return [
     {
-      id: CSV_SOURCE_NODE_ID,
-      type: "csvSource",
+      id: DATA_SOURCE_NODE_ID,
+      type: "dataSource",
       position: { x: 0, y: 0 },
-      data: defaultCsvSourceData(),
+      data: defaultDataSourceData(),
     },
     ...withoutFixed,
   ];
 }
 
 export function serializeWorkspaceSnapshot(nodes: AppNode[], edges: Edge[]): WorkspaceSnapshot {
+  const persistedNodes = nodes.map((n) => {
+    if (n.type === "dataSource") {
+      return { ...n, data: { ...n.data, csv: null } };
+    }
+    return n;
+  });
   return {
     version: WORKSPACE_SCHEMA_VERSION,
     savedAt: Date.now(),
-    nodes,
+    nodes: persistedNodes,
     edges,
   };
 }
 
-/** First legacy `httpFetch` palette node merged into fixed CSV source on load (node type removed). */
-function extractLegacyHttpFetchIntoCsvSource(rawNodes: unknown[]): Partial<CsvSourceData> | null {
+/** First legacy `httpFetch` palette node merged into fixed data source on load (node type removed). */
+function extractLegacyHttpFetchIntoDataSource(rawNodes: unknown[]): Partial<DataSourceData> | null {
   for (const raw of rawNodes) {
     if (!isRecord(raw) || asString(raw.type) !== "httpFetch") continue;
     const d = isRecord(raw.data) ? raw.data : {};
@@ -775,6 +904,11 @@ function extractLegacyHttpFetchIntoCsvSource(rawNodes: unknown[]): Partial<CsvSo
         fileName,
         error: null,
         loadedAt: loadedAt ?? Date.now(),
+        datasetId: null,
+        format: null,
+        headers: csv.headers,
+        rowCount: csv.rows.length,
+        sample: sampleRowsFromPayload(csv.rows),
       };
     }
     return {
@@ -782,30 +916,52 @@ function extractLegacyHttpFetchIntoCsvSource(rawNodes: unknown[]): Partial<CsvSo
       httpParams,
       httpHeaders,
       ...(err != null ? { error: err } : {}),
+      datasetId: null,
+      format: null,
+      headers: [],
+      rowCount: 0,
+      sample: [],
     };
   }
   return null;
 }
 
-export function deserializeWorkspaceSnapshot(raw: unknown): WorkspaceSnapshot | null {
+export async function deserializeWorkspaceSnapshot(
+  raw: unknown,
+): Promise<WorkspaceSnapshot | null> {
   if (!isRecord(raw)) return null;
-  if (raw.version !== WORKSPACE_SCHEMA_VERSION) return null;
+  const initialVersion = asNumber(raw.version);
+  if (
+    initialVersion == null ||
+    (initialVersion !== 1 && initialVersion !== 2 && initialVersion !== 3)
+  ) {
+    return null;
+  }
+  if (initialVersion === 1) {
+    migrateWorkspaceRawV1ToV2InPlace(raw);
+  }
 
   const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : null;
   const rawEdges = Array.isArray(raw.edges) ? raw.edges : null;
   if (rawNodes == null || rawEdges == null) return null;
 
-  const legacyHttp = extractLegacyHttpFetchIntoCsvSource(rawNodes);
+  const legacyHttp = extractLegacyHttpFetchIntoDataSource(rawNodes);
 
-  const nodes = ensureRequiredCsvSource(
+  let nodes = ensureRequiredDataSource(
     rawNodes.map((node) => sanitizeNode(node)).filter((node): node is AppNode => node != null),
   ).map((node) => {
     if (legacyHttp == null) return node;
-    if (node.id === CSV_SOURCE_NODE_ID && node.type === "csvSource") {
+    if (node.id === DATA_SOURCE_NODE_ID && node.type === "dataSource") {
       return { ...node, data: { ...node.data, ...legacyHttp } };
     }
     return node;
   });
+
+  if (initialVersion <= 2) {
+    nodes = await migrateV2DataSourcesToDatasetRefs(nodes);
+  }
+
+  nodes = await hydrateDataSourceCsvRows(nodes);
 
   const nodeIds = new Set(nodes.map((n) => n.id));
   const edges = rawEdges

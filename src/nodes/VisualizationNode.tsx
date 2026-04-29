@@ -1,9 +1,8 @@
-import { useCallback, useMemo, type ChangeEvent } from "react";
+import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { getTabularOutputForEdge, getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
 import type {
   AppNode,
-  CsvPayload,
   VisualizationNode as VisualizationNodeType,
   VisualizationNodeData,
 } from "../types/flow";
@@ -11,12 +10,14 @@ import type {
 const DEFAULT_PREVIEW_ROWS = 5;
 
 type VizResolution =
+  | { kind: "loading" }
   | { kind: "no-edge" }
   | { kind: "no-data" }
   | {
       kind: "ready";
-      csv: CsvPayload;
+      headers: string[];
       displayRows: Record<string, string>[];
+      totalRows: number;
       viaFilter: boolean;
       rowsBeforeFilter: number | null;
     };
@@ -26,6 +27,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
   const requestedRows = data.previewRows ?? DEFAULT_PREVIEW_ROWS;
+  const [resolution, setResolution] = useState<VizResolution>({ kind: "loading" });
 
   const patchData = useCallback(
     (patch: Partial<VisualizationNodeData>) => {
@@ -38,46 +40,67 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     [id, setNodes],
   );
 
-  const resolution = useMemo((): VizResolution => {
-    const incoming = edges.filter((e) => e.target === id);
-    if (incoming.length === 0) {
-      return { kind: "no-edge" };
-    }
-    const parentId = incoming[0].source;
-    const parent = nodes.find((n) => n.id === parentId);
-    const payload = getTabularOutputForEdge(incoming[0], nodes, edges);
-    if (payload == null) {
-      return { kind: "no-data" };
-    }
-    const viaFilter = parent?.type === "filter";
-    let rowsBeforeFilter: number | null = null;
-    if (viaFilter && parent != null) {
-      const intoFilter = edges.filter((e) => e.target === parent.id)[0];
-      if (intoFilter != null) {
-        const before = getTabularOutputForEdge(intoFilter, nodes, edges);
-        rowsBeforeFilter = before?.rows.length ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const incoming = edges.filter((e) => e.target === id);
+      if (incoming.length === 0) {
+        if (!cancelled) setResolution({ kind: "no-edge" });
+        return;
       }
-    }
-    return {
-      kind: "ready",
-      csv: payload,
-      displayRows: payload.rows,
-      viaFilter,
-      rowsBeforeFilter,
+      const edge = incoming[0]!;
+      const parentId = edge.source;
+      const parent = nodes.find((n) => n.id === parentId);
+      const rs = await getTabularOutputForEdgeAsync(edge, nodes, edges);
+      if (cancelled) return;
+      if (rs == null) {
+        setResolution({ kind: "no-data" });
+        return;
+      }
+      const cap = Math.max(1, requestedRows);
+      const displayRows: Record<string, string>[] = [];
+      for await (const row of rs.rows()) {
+        displayRows.push(row);
+        if (displayRows.length >= cap) break;
+      }
+      const viaFilter = parent?.type === "filter";
+      let rowsBeforeFilter: number | null = null;
+      if (viaFilter && parent != null) {
+        const intoFilter = edges.filter((e) => e.target === parent.id)[0];
+        if (intoFilter != null) {
+          const before = getTabularOutputForEdge(intoFilter, nodes, edges);
+          rowsBeforeFilter = before?.rows.length ?? null;
+        }
+      }
+      const totalRows = rs.rowCount ?? displayRows.length;
+      setResolution({
+        kind: "ready",
+        headers: rs.headers,
+        displayRows,
+        totalRows,
+        viaFilter,
+        rowsBeforeFilter,
+      });
+    })();
+    return () => {
+      cancelled = true;
     };
-  }, [edges, id, nodes]);
+  }, [edges, id, nodes, requestedRows]);
 
-  const csv = resolution.kind === "ready" ? resolution.csv : null;
   const viaFilter = resolution.kind === "ready" ? resolution.viaFilter : false;
   const rowsBeforeFilter = resolution.kind === "ready" ? resolution.rowsBeforeFilter : null;
+  const headers = resolution.kind === "ready" ? resolution.headers : [];
+  const totalRows = resolution.kind === "ready" ? resolution.totalRows : 0;
+  const effectiveRowCount =
+    resolution.kind === "ready" && totalRows > 0
+      ? Math.min(Math.max(1, requestedRows), totalRows)
+      : 0;
 
-  const totalRows = resolution.kind === "ready" ? resolution.displayRows.length : 0;
-  const effectiveRowCount = totalRows === 0 ? 0 : Math.min(Math.max(1, requestedRows), totalRows);
+  const previewRows =
+    resolution.kind === "ready" ? resolution.displayRows.slice(0, effectiveRowCount) : [];
 
-  const previewRows = useMemo(() => {
-    if (resolution.kind !== "ready") return [];
-    return resolution.displayRows.slice(0, effectiveRowCount);
-  }, [resolution, effectiveRowCount]);
+  const filterShrunk =
+    viaFilter && rowsBeforeFilter != null && rowsBeforeFilter > 0 && totalRows < rowsBeforeFilter;
 
   const onRowsInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
@@ -98,9 +121,6 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     [patchData, requestedRows, totalRows],
   );
 
-  const filterShrunk =
-    viaFilter && rowsBeforeFilter != null && rowsBeforeFilter > 0 && totalRows < rowsBeforeFilter;
-
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
@@ -111,6 +131,12 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         Pass-through debug preview: shows whatever tabular data leaves the node above (CSV chain,
         another Visualization, or a Filter).
       </p>
+
+      {resolution.kind === "loading" && (
+        <div className="mt-1 max-h-[220px] overflow-auto rounded border border-neutral-200">
+          <p className="p-2 text-xs text-neutral-500">Loading preview…</p>
+        </div>
+      )}
 
       {resolution.kind === "no-edge" && (
         <div className="mt-1 max-h-[220px] overflow-auto rounded border border-neutral-200">
@@ -128,7 +154,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         </div>
       )}
 
-      {resolution.kind === "ready" && csv != null && (
+      {resolution.kind === "ready" && (
         <div className="mt-1 max-h-[220px] overflow-auto rounded border border-neutral-200">
           {totalRows === 0 ? (
             <p className="p-2 text-xs text-neutral-500">
@@ -180,7 +206,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
               <table className="w-full border-collapse text-left text-[11px]">
                 <thead>
                   <tr className="sticky top-0 border-b border-neutral-200 bg-neutral-50 text-neutral-600">
-                    {csv.headers.map((h) => (
+                    {headers.map((h) => (
                       <th key={h} className="whitespace-nowrap px-1.5 py-1 font-medium">
                         {h}
                       </th>
@@ -190,7 +216,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 <tbody>
                   {previewRows.map((row, i) => (
                     <tr key={i} className="border-b border-neutral-100 last:border-b-0">
-                      {csv.headers.map((h) => (
+                      {headers.map((h) => (
                         <td
                           key={h}
                           className="max-w-[120px] truncate px-1.5 py-1 text-neutral-800"
@@ -208,7 +234,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         </div>
       )}
 
-      {resolution.kind === "ready" && csv != null && totalRows > 0 && (
+      {resolution.kind === "ready" && totalRows > 0 && (
         <p className="mt-1 px-1 text-[10px] text-neutral-400">
           Showing {effectiveRowCount} of {totalRows} row{totalRows === 1 ? "" : "s"} from upstream
           {viaFilter ? " (after filter)" : " (pass-through)"} (plus header).

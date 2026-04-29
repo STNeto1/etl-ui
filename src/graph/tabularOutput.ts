@@ -4,6 +4,7 @@ import { applyComputeRow } from "../computeColumn/template";
 import { applyCastToPayload } from "../cast/applyCast";
 import { applyFillReplaceToPayload } from "../fillReplace/applyFillReplace";
 import type { AppNode, CsvPayload, HttpColumnRename } from "../types/flow";
+import { collectRowSourceToPayload, rowSourceFromPayload, type RowSource } from "./rowSource";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
@@ -75,6 +76,16 @@ function compareSortValues(
   return direction === "asc" ? comparison : -comparison;
 }
 
+function getTabularOutputWithHandle(
+  nodeId: string,
+  viaSourceHandle: string | null,
+  nodes: AppNode[],
+  edges: Edge[],
+  visited: Set<string> = new Set(),
+): CsvPayload | null {
+  return resolveNodeOutput(nodeId, viaSourceHandle, nodes, edges, visited);
+}
+
 /**
  * Tabular output **leaving** `nodeId`: CSV payload from a source, pass-through for Visualization,
  * or filtered rows for Filter. Used so chains like CSV → Visualization → Filter → Visualization work.
@@ -85,7 +96,7 @@ export function getTabularOutput(
   edges: Edge[],
   visited: Set<string> = new Set(),
 ): CsvPayload | null {
-  return resolveNodeOutput(nodeId, null, nodes, edges, visited);
+  return getTabularOutputWithHandle(nodeId, null, nodes, edges, visited);
 }
 
 export function getTabularOutputForEdge(
@@ -94,7 +105,7 @@ export function getTabularOutputForEdge(
   edges: Edge[],
   visited: Set<string> = new Set(),
 ): CsvPayload | null {
-  return resolveNodeOutput(
+  return getTabularOutputWithHandle(
     incomingEdge.source,
     incomingEdge.sourceHandle ?? null,
     nodes,
@@ -102,6 +113,35 @@ export function getTabularOutputForEdge(
     visited,
   );
 }
+
+/** Async view of tabular output as a row iterator (currently materialized from the sync resolver). */
+export async function getTabularOutputAsync(
+  nodeId: string,
+  nodes: AppNode[],
+  edges: Edge[],
+  visited: Set<string> = new Set(),
+): Promise<RowSource | null> {
+  const payload = getTabularOutputWithHandle(nodeId, null, nodes, edges, visited);
+  return payload != null ? rowSourceFromPayload(payload) : null;
+}
+
+export async function getTabularOutputForEdgeAsync(
+  incomingEdge: Edge,
+  nodes: AppNode[],
+  edges: Edge[],
+  visited: Set<string> = new Set(),
+): Promise<RowSource | null> {
+  const payload = getTabularOutputWithHandle(
+    incomingEdge.source,
+    incomingEdge.sourceHandle ?? null,
+    nodes,
+    edges,
+    visited,
+  );
+  return payload != null ? rowSourceFromPayload(payload) : null;
+}
+
+export { collectRowSourceToPayload, rowSourceFromPayload, type RowSource };
 
 function applyHttpColumnRenames(csv: CsvPayload, renames: HttpColumnRename[]): CsvPayload {
   const list = renames.filter((r) => r.fromColumn.trim() !== "" && r.toColumn.trim() !== "");
@@ -138,8 +178,8 @@ function resolveNodeOutput(
   if (node == null) return null;
 
   switch (node.type) {
-    case "csvSource": {
-      const sourceNode = node as Extract<AppNode, { type: "csvSource" }>;
+    case "dataSource": {
+      const sourceNode = node as Extract<AppNode, { type: "dataSource" }>;
       const csv = sourceNode.data.csv ?? null;
       if (csv == null) return null;
       const renames = sourceNode.data.httpColumnRenames ?? [];

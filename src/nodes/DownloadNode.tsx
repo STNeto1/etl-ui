@@ -1,6 +1,10 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import {
+  collectRowSourceToPayload,
+  getTabularOutputForEdge,
+  getTabularOutputForEdgeAsync,
+} from "../graph/tabularOutput";
 import { csvPayloadToString, normalizeCsvFileName } from "../download/toCsv";
 import type { AppNode, DownloadNode as DownloadNodeType, DownloadNodeData } from "../types/flow";
 
@@ -26,9 +30,12 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
     [id, setNodes],
   );
 
-  const onDownload = useCallback(() => {
-    if (upstream == null) return;
-    const csv = csvPayloadToString(upstream);
+  const onDownload = useCallback(async () => {
+    if (incoming.length === 0) return;
+    const rs = await getTabularOutputForEdgeAsync(incoming[0]!, nodes, edges);
+    if (rs == null) return;
+    const payload = await collectRowSourceToPayload(rs);
+    const csv = csvPayloadToString(payload);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const objectUrl = URL.createObjectURL(blob);
@@ -38,7 +45,7 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
     link.click();
     link.remove();
     URL.revokeObjectURL(objectUrl);
-  }, [safeFileName, upstream]);
+  }, [safeFileName, incoming, nodes, edges]);
 
   return (
     <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
@@ -84,7 +91,7 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
           </div>
           <button
             type="button"
-            onClick={onDownload}
+            onClick={() => void onDownload()}
             className="mt-2 w-full rounded border border-neutral-300 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-neutral-800"
           >
             Download CSV

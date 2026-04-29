@@ -23,7 +23,7 @@ export function downloadWorkspaceJson(nodes: AppNode[], edges: Edge[], filename:
   URL.revokeObjectURL(url);
 }
 
-export function parseWorkspaceJsonText(text: string) {
+export async function parseWorkspaceJsonText(text: string) {
   let raw: unknown;
   try {
     raw = JSON.parse(text) as unknown;

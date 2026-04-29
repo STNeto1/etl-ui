@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
+import { createDatasetStore } from "../dataset/datasetStore";
 import type { AppNode } from "../types/flow";
-import { defaultCsvSourceData } from "../types/flow";
+import { defaultDataSourceData } from "../types/flow";
 import { getBlankWorkspaceGraph } from "../workspace/blankWorkspace";
-import { serializeWorkspaceSnapshot, WORKSPACE_SCHEMA_VERSION } from "./schema";
+import { WORKSPACE_SCHEMA_VERSION } from "./schema";
 import {
   createWorkspace,
   DB_NAME,
@@ -19,6 +20,16 @@ import {
 } from "./workspaceStore";
 
 const STORE_NAME = "workspaces";
+const DATASET_DB = "etl-ui-datasets";
+
+function deleteDatasetTestDatabase(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(DATASET_DB);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error("Failed to delete dataset db"));
+    request.onblocked = () => resolve();
+  });
+}
 
 function deleteTestDatabase(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -60,21 +71,27 @@ beforeEach(async () => {
     writable: true,
   });
   await deleteTestDatabase();
+  await deleteDatasetTestDatabase();
 });
 
 describe("workspaceStore", () => {
   it("saves and loads a workspace snapshot roundtrip for default id", async () => {
+    const store = createDatasetStore();
+    const payload = { headers: ["id", "name"], rows: [{ id: "1", name: "Ada" }] };
+    const meta = await store.putNormalizedPayload(payload, "csv");
     const nodes: AppNode[] = [
       {
-        id: "csv-source",
-        type: "csvSource",
+        id: "data-source",
+        type: "dataSource",
         position: { x: 0, y: 0 },
         data: {
-          ...defaultCsvSourceData(),
-          csv: {
-            headers: ["id", "name"],
-            rows: [{ id: "1", name: "Ada" }],
-          },
+          ...defaultDataSourceData(),
+          datasetId: meta.id,
+          format: meta.format,
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+          csv: payload,
           source: "template",
           fileName: "template.csv",
           error: null,
@@ -88,7 +105,7 @@ describe("workspaceStore", () => {
         data: { label: "Visualization", previewRows: 10 },
       },
     ];
-    const edges = [{ id: "e1", source: "csv-source", target: "viz-1" }];
+    const edges = [{ id: "e1", source: "data-source", target: "viz-1" }];
 
     await saveWorkspaceSnapshot(DEFAULT_WORKSPACE_ID, nodes, edges);
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
@@ -98,7 +115,7 @@ describe("workspaceStore", () => {
     expect(loaded?.edges).toEqual([
       expect.objectContaining({
         id: "e1",
-        source: "csv-source",
+        source: "data-source",
         target: "viz-1",
       }),
     ]);
@@ -109,24 +126,30 @@ describe("workspaceStore", () => {
     expect(idx?.items.some((i) => i.id === DEFAULT_WORKSPACE_ID)).toBe(true);
   });
 
-  it("migrates v1 default-only store into index + keeps snapshot", async () => {
-    const nodes: AppNode[] = [
-      {
-        id: "csv-source",
-        type: "csvSource",
-        position: { x: 1, y: 2 },
-        data: { ...defaultCsvSourceData(), fileName: "m.csv" },
-      },
-    ];
-    const snap = serializeWorkspaceSnapshot(nodes, []);
-    await seedV1WithSnapshot(snap);
+  it("migrates v1 default-only store into index + rewrites csvSource to dataSource", async () => {
+    const v1Raw = {
+      version: 1,
+      savedAt: Date.now(),
+      nodes: [
+        {
+          id: "csv-source",
+          type: "csvSource",
+          position: { x: 1, y: 2 },
+          data: { ...defaultDataSourceData(), fileName: "m.csv" },
+        },
+      ],
+      edges: [],
+    };
+    await seedV1WithSnapshot(v1Raw);
 
     const index = await loadWorkspaceIndex();
     expect(index).not.toBeNull();
     expect(index?.items.some((i) => i.id === DEFAULT_WORKSPACE_ID)).toBe(true);
 
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
-    expect(loaded?.nodes).toEqual(nodes);
+    expect(loaded?.version).toBe(WORKSPACE_SCHEMA_VERSION);
+    expect(loaded?.nodes[0]?.id).toBe("data-source");
+    expect(loaded?.nodes[0]?.type).toBe("dataSource");
   });
 
   it("roundtrips a non-default workspace id", async () => {
@@ -137,10 +160,10 @@ describe("workspaceStore", () => {
 
     const nodes: AppNode[] = [
       {
-        id: "csv-source",
-        type: "csvSource",
+        id: "data-source",
+        type: "dataSource",
         position: { x: 0, y: 0 },
-        data: { ...defaultCsvSourceData(), fileName: "only.csv" },
+        data: { ...defaultDataSourceData(), fileName: "only.csv" },
       },
     ];
     await saveWorkspaceSnapshot(wid, nodes, []);
@@ -199,7 +222,7 @@ describe("workspaceStore", () => {
     expect(loaded).toBeNull();
   });
 
-  it("reinserts required csv source when missing", async () => {
+  it("reinserts required data source when missing", async () => {
     await writeWorkspaceRawForTest({
       version: WORKSPACE_SCHEMA_VERSION,
       savedAt: Date.now(),
@@ -217,7 +240,7 @@ describe("workspaceStore", () => {
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded).not.toBeNull();
     expect(
-      loaded?.nodes.some((node) => node.id === "csv-source" && node.type === "csvSource"),
+      loaded?.nodes.some((node) => node.id === "data-source" && node.type === "dataSource"),
     ).toBe(true);
   });
 

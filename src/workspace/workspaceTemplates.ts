@@ -1,12 +1,12 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode } from "../types/flow";
 import {
-  CSV_SOURCE_NODE_ID,
+  DATA_SOURCE_NODE_ID,
   defaultAggregateData,
   defaultCastColumnsData,
   defaultComputeColumnData,
   defaultConditionalData,
-  defaultCsvSourceData,
+  defaultDataSourceData,
   defaultFilterData,
   defaultJoinData,
   defaultMergeUnionData,
@@ -69,14 +69,17 @@ export const WORKSPACE_TEMPLATE_LIST: readonly WorkspaceTemplateMeta[] = [
   },
 ] as const;
 
-function csvSourceNode(x: number, y: number): AppNode {
+function dataSourceNode(x: number, y: number): AppNode {
   return {
-    id: CSV_SOURCE_NODE_ID,
-    type: "csvSource",
+    id: DATA_SOURCE_NODE_ID,
+    type: "dataSource",
     position: { x, y },
     data: {
-      ...defaultCsvSourceData(),
+      ...defaultDataSourceData(),
       csv: DEMO_TEMPLATE_CSV,
+      headers: DEMO_TEMPLATE_CSV.headers,
+      rowCount: DEMO_TEMPLATE_CSV.rows.length,
+      sample: DEMO_TEMPLATE_CSV.rows.slice(0, 50),
       source: "template",
       fileName: "template.csv",
       error: null,
@@ -91,7 +94,7 @@ function snapshotStarter(): { nodes: AppNode[]; edges: Edge[] } {
   const x0 = 40;
   return {
     nodes: [
-      csvSourceNode(x0, 80),
+      dataSourceNode(x0, 80),
       {
         id: filterId,
         type: "filter",
@@ -106,7 +109,7 @@ function snapshotStarter(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-s-e1", source: CSV_SOURCE_NODE_ID, target: filterId },
+      { id: "tmpl-s-e1", source: DATA_SOURCE_NODE_ID, target: filterId },
       { id: "tmpl-s-e2", source: filterId, target: vizId },
     ],
   };
@@ -118,7 +121,7 @@ function snapshotAggregate(): { nodes: AppNode[]; edges: Edge[] } {
   const x0 = 40;
   return {
     nodes: [
-      csvSourceNode(x0, 80),
+      dataSourceNode(x0, 80),
       {
         id: aggId,
         type: "aggregate",
@@ -145,7 +148,7 @@ function snapshotAggregate(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-a-e1", source: CSV_SOURCE_NODE_ID, target: aggId },
+      { id: "tmpl-a-e1", source: DATA_SOURCE_NODE_ID, target: aggId },
       { id: "tmpl-a-e2", source: aggId, target: vizId },
     ],
   };
@@ -157,7 +160,7 @@ function snapshotCompute(): { nodes: AppNode[]; edges: Edge[] } {
   const x0 = 40;
   return {
     nodes: [
-      csvSourceNode(x0, 80),
+      dataSourceNode(x0, 80),
       {
         id: compId,
         type: "computeColumn",
@@ -182,7 +185,7 @@ function snapshotCompute(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-c-e1", source: CSV_SOURCE_NODE_ID, target: compId },
+      { id: "tmpl-c-e1", source: DATA_SOURCE_NODE_ID, target: compId },
       { id: "tmpl-c-e2", source: compId, target: vizId },
     ],
   };
@@ -198,7 +201,7 @@ function snapshotTransforms(): { nodes: AppNode[]; edges: Edge[] } {
   const y = 80;
   return {
     nodes: [
-      csvSourceNode(x0, y),
+      dataSourceNode(x0, y),
       {
         id: selId,
         type: "selectColumns",
@@ -247,7 +250,7 @@ function snapshotTransforms(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-tr-e0", source: CSV_SOURCE_NODE_ID, target: selId },
+      { id: "tmpl-tr-e0", source: DATA_SOURCE_NODE_ID, target: selId },
       { id: "tmpl-tr-e1", source: selId, target: renId },
       { id: "tmpl-tr-e2", source: renId, target: castId },
       { id: "tmpl-tr-e3", source: castId, target: sortId },
@@ -264,7 +267,7 @@ function snapshotBranchMerge(): { nodes: AppNode[]; edges: Edge[] } {
   const y = 80;
   return {
     nodes: [
-      csvSourceNode(x0, y),
+      dataSourceNode(x0, y),
       {
         id: condId,
         type: "conditional",
@@ -290,7 +293,7 @@ function snapshotBranchMerge(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-bm-e0", source: CSV_SOURCE_NODE_ID, target: condId },
+      { id: "tmpl-bm-e0", source: DATA_SOURCE_NODE_ID, target: condId },
       {
         id: "tmpl-bm-e1",
         source: condId,
@@ -315,7 +318,7 @@ function snapshotJoin(): { nodes: AppNode[]; edges: Edge[] } {
   const y = 80;
   return {
     nodes: [
-      csvSourceNode(x0, y),
+      dataSourceNode(x0, y),
       {
         id: joinId,
         type: "join",
@@ -337,13 +340,13 @@ function snapshotJoin(): { nodes: AppNode[]; edges: Edge[] } {
     edges: [
       {
         id: "tmpl-j-eL",
-        source: CSV_SOURCE_NODE_ID,
+        source: DATA_SOURCE_NODE_ID,
         target: joinId,
         targetHandle: JOIN_LEFT_TARGET,
       },
       {
         id: "tmpl-j-eR",
-        source: CSV_SOURCE_NODE_ID,
+        source: DATA_SOURCE_NODE_ID,
         target: joinId,
         targetHandle: JOIN_RIGHT_TARGET,
       },

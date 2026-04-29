@@ -25,11 +25,13 @@ import {
   parseCsvFromFile,
   truncateForParseErrorPreview,
 } from "../httpFetch/runHttpFetch";
+import { createDatasetStore } from "../dataset/datasetStore";
+import type { DatasetFormat } from "../dataset/types";
 import type {
   CsvPayload,
-  CsvSourceData,
-  CsvSourceKind,
-  CsvSourceNode,
+  DataSourceData,
+  DataSourceKind,
+  DataSourceNode,
   HttpColumnRename,
   HttpFetchKv,
 } from "../types/flow";
@@ -46,6 +48,43 @@ function newHttpColumnRename(): HttpColumnRename {
   return { id: crypto.randomUUID(), fromColumn: "", toColumn: "" };
 }
 
+const INGEST_FAILURE_RESET: Pick<
+  DataSourceData,
+  | "csv"
+  | "datasetId"
+  | "format"
+  | "headers"
+  | "rowCount"
+  | "sample"
+  | "source"
+  | "fileName"
+  | "loadedAt"
+> = {
+  csv: null,
+  datasetId: null,
+  format: null,
+  headers: [],
+  rowCount: 0,
+  sample: [],
+  source: null,
+  fileName: null,
+  loadedAt: null,
+};
+
+function inferHttpDatasetFormat(url: string, contentType: string | null): DatasetFormat {
+  const u = url.toLowerCase();
+  const ct = (contentType ?? "").toLowerCase();
+  if (ct.includes("ndjson") || u.endsWith(".ndjson")) return "ndjson";
+  if (ct.includes("json") || u.endsWith(".json")) return "json";
+  return "csv";
+}
+
+function ingestHintToDatasetFormat(hint: IngestFormatHint): DatasetFormat {
+  if (hint === "json") return "json";
+  if (hint === "ndjson") return "ndjson";
+  return "csv";
+}
+
 function stripOutgoingSourceEdges(
   setEdges: (fn: (edges: Edge[]) => Edge[]) => void,
   sourceNodeId: string,
@@ -53,7 +92,7 @@ function stripOutgoingSourceEdges(
   setEdges((edges) => edges.filter((e) => e.source !== sourceNodeId));
 }
 
-function CsvSourceParseFailureHelp({ error, body }: { error: string; body: string | null }) {
+function DataSourceParseFailureHelp({ error, body }: { error: string; body: string | null }) {
   const shape = isJsonTabularShapeError(error);
   return (
     <div
@@ -98,7 +137,7 @@ function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>
   return { payload: { headers, rows }, error: null };
 }
 
-export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
+export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
   const { setNodes, setEdges } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -113,10 +152,10 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
   );
 
   const patchData = useCallback(
-    (patch: Partial<CsvSourceData>) => {
+    (patch: Partial<DataSourceData>) => {
       setNodes((nodes) =>
         nodes.map((n) =>
-          n.id === id && n.type === "csvSource" ? { ...n, data: { ...n.data, ...patch } } : n,
+          n.id === id && n.type === "dataSource" ? { ...n, data: { ...n.data, ...patch } } : n,
         ),
       );
     },
@@ -124,28 +163,46 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
   );
 
   const applySuccess = useCallback(
-    (payload: CsvPayload, source: CsvSourceKind, fileName: string | null) => {
+    async (
+      payload: CsvPayload,
+      source: DataSourceKind,
+      fileName: string | null,
+      format: DatasetFormat,
+    ) => {
       const rowCheck = validateIngestPayload(payload);
       if (rowCheck.ok === false) {
         stripOutgoingSourceEdges(setEdges, id);
         setParsePreviewBody(null);
         patchData({
+          ...INGEST_FAILURE_RESET,
           error: rowCheck.error,
-          csv: null,
-          source: null,
-          fileName: null,
-          loadedAt: null,
         });
         return;
       }
-      setParsePreviewBody(null);
-      patchData({
-        csv: payload,
-        source,
-        fileName,
-        error: null,
-        loadedAt: Date.now(),
-      });
+      try {
+        const store = createDatasetStore();
+        const meta = await store.putNormalizedPayload(payload, format);
+        setParsePreviewBody(null);
+        patchData({
+          csv: payload,
+          datasetId: meta.id,
+          format: meta.format,
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+          source,
+          fileName,
+          error: null,
+          loadedAt: Date.now(),
+        });
+      } catch (err) {
+        stripOutgoingSourceEdges(setEdges, id);
+        setParsePreviewBody(null);
+        patchData({
+          ...INGEST_FAILURE_RESET,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     },
     [id, patchData, setEdges],
   );
@@ -153,7 +210,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
   const httpJsonArrayPath = data.httpJsonArrayPath ?? "";
 
   const reapplyLastLocalJsonFile = useCallback(
-    (newPath: string) => {
+    async (newPath: string) => {
       const snap = lastLocalFileRef.current;
       if (snap == null || !snap.name.toLowerCase().endsWith(".json")) return;
 
@@ -162,16 +219,12 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         stripOutgoingSourceEdges(setEdges, id);
         setParsePreviewBody(truncateForParseErrorPreview(snap.text));
         patchData({
+          ...INGEST_FAILURE_RESET,
           error: result.error,
-          csv: null,
-          source: null,
-          fileName: null,
-          loadedAt: null,
         });
         return;
       }
-      setParsePreviewBody(null);
-      applySuccess(result.csv, "file", snap.name);
+      await applySuccess(result.csv, "file", snap.name, "json");
     },
     [applySuccess, id, patchData, setEdges],
   );
@@ -180,7 +233,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     (e: FormEvent<HTMLInputElement>) => {
       const value = e.currentTarget.value;
       patchData({ httpJsonArrayPath: value });
-      reapplyLastLocalJsonFile(value);
+      void reapplyLastLocalJsonFile(value);
     },
     [patchData, reapplyLastLocalJsonFile],
   );
@@ -210,11 +263,8 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         stripOutgoingSourceEdges(setEdges, id);
         setParsePreviewBody(null);
         patchData({
+          ...INGEST_FAILURE_RESET,
           error: fileTooLargeMessage(maxBytes, file.size),
-          csv: null,
-          source: null,
-          fileName: null,
-          loadedAt: null,
         });
         setBusy(false);
         return;
@@ -227,15 +277,12 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             stripOutgoingSourceEdges(setEdges, id);
             setParsePreviewBody(null);
             patchData({
+              ...INGEST_FAILURE_RESET,
               error: result.error,
-              csv: null,
-              source: null,
-              fileName: null,
-              loadedAt: null,
             });
             return;
           }
-          applySuccess(result.csv, "file", file.name);
+          await applySuccess(result.csv, "file", file.name, "csv");
           return;
         }
 
@@ -250,25 +297,19 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             isJsonTabularShapeError(result.error);
           setParsePreviewBody(showBody ? truncateForParseErrorPreview(text) : null);
           patchData({
+            ...INGEST_FAILURE_RESET,
             error: result.error,
-            csv: null,
-            source: null,
-            fileName: null,
-            loadedAt: null,
           });
           return;
         }
-        applySuccess(result.csv, "file", file.name);
+        await applySuccess(result.csv, "file", file.name, ingestHintToDatasetFormat(hint));
       } catch {
         lastLocalFileRef.current = null;
         stripOutgoingSourceEdges(setEdges, id);
         setParsePreviewBody(null);
         patchData({
+          ...INGEST_FAILURE_RESET,
           error: "Could not read file",
-          csv: null,
-          source: null,
-          fileName: null,
-          loadedAt: null,
         });
       } finally {
         setBusy(false);
@@ -285,11 +326,8 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       const res = await fetch("/template.csv");
       if (!res.ok) {
         patchData({
+          ...INGEST_FAILURE_RESET,
           error: `Could not load template (${res.status})`,
-          csv: null,
-          source: null,
-          fileName: null,
-          loadedAt: null,
         });
         return;
       }
@@ -298,11 +336,8 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       const maxTemplateBytes = getMaxCsvNdjsonBytes();
       if (bodyBytes > maxTemplateBytes) {
         patchData({
+          ...INGEST_FAILURE_RESET,
           error: fileTooLargeMessage(maxTemplateBytes, bodyBytes),
-          csv: null,
-          source: null,
-          fileName: null,
-          loadedAt: null,
         });
         return;
       }
@@ -313,20 +348,17 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       });
       const { payload, error } = payloadFromParseResult(result);
       if (error) {
-        patchData({ error, csv: null, source: null, fileName: null, loadedAt: null });
+        patchData({ ...INGEST_FAILURE_RESET, error });
         return;
       }
       if (payload) {
         lastLocalFileRef.current = null;
-        applySuccess(payload, "template", "template.csv");
+        await applySuccess(payload, "template", "template.csv", "csv");
       }
     } catch {
       patchData({
+        ...INGEST_FAILURE_RESET,
         error: "Failed to fetch template",
-        csv: null,
-        source: null,
-        fileName: null,
-        loadedAt: null,
       });
     } finally {
       setBusy(false);
@@ -380,19 +412,36 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       } catch {
         fileLabel = "HTTP";
       }
-      patchData({
-        csv: result.csv,
-        source: "http",
-        fileName: fileLabel,
-        error: null,
-        loadedAt: Date.now(),
-        httpLastDiagnostics: {
-          status: result.status,
-          contentType: result.contentType,
-          bodyByteLength: result.bodyByteLength,
-          resolvedUrl: built.url,
-        },
-      });
+      try {
+        const store = createDatasetStore();
+        const fmt = inferHttpDatasetFormat(built.url, result.contentType);
+        const meta = await store.putNormalizedPayload(result.csv, fmt);
+        patchData({
+          csv: result.csv,
+          datasetId: meta.id,
+          format: meta.format,
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+          source: "http",
+          fileName: fileLabel,
+          error: null,
+          loadedAt: Date.now(),
+          httpLastDiagnostics: {
+            status: result.status,
+            contentType: result.contentType,
+            bodyByteLength: result.bodyByteLength,
+            resolvedUrl: built.url,
+          },
+        });
+      } catch (err) {
+        stripOutgoingSourceEdges(setEdges, id);
+        patchData({
+          ...INGEST_FAILURE_RESET,
+          error: err instanceof Error ? err.message : String(err),
+          httpLastDiagnostics: null,
+        });
+      }
     } else {
       const snippet =
         "responseBodySnippet" in result && result.responseBodySnippet != null
@@ -406,7 +455,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
       patchData({
         error: result.error,
         httpLastDiagnostics: null,
-        ...(shape ? { csv: null, source: null, fileName: null, loadedAt: null } : {}),
+        ...(shape ? INGEST_FAILURE_RESET : {}),
       });
     }
   }, [
@@ -942,7 +991,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
 
       {data.error != null && (
         <div className="mt-2 px-1">
-          <CsvSourceParseFailureHelp error={data.error} body={parsePreviewBody} />
+          <DataSourceParseFailureHelp error={data.error} body={parsePreviewBody} />
         </div>
       )}
 

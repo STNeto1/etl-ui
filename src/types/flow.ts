@@ -1,18 +1,29 @@
 import type { Node } from "@xyflow/react";
+import type { DatasetFormat } from "../dataset/types";
 
-/** Fixed id for the sole CSV source node; removal is treated as a data reset, not graph delete. */
-export const CSV_SOURCE_NODE_ID = "csv-source" as const;
+/** Fixed id for the sole data source node; removal is treated as a data reset, not graph delete. */
+export const DATA_SOURCE_NODE_ID = "data-source" as const;
+
+/** @deprecated Use DATA_SOURCE_NODE_ID (persisted id was renamed in workspace schema v2). */
+export const CSV_SOURCE_NODE_ID = DATA_SOURCE_NODE_ID;
 
 export type CsvPayload = {
   headers: string[];
   rows: Record<string, string>[];
 };
 
-export type CsvSourceKind = "file" | "template" | "http";
+export type DataSourceKind = "file" | "template" | "http";
 
-export type CsvSourceData = {
+export type DataSourceData = {
+  /** Browser dataset store id; full rows loaded from store when `csv` is null after hydrate. */
+  datasetId: string | null;
+  format: DatasetFormat | null;
+  headers: string[];
+  rowCount: number;
+  sample: Record<string, string>[];
+  /** In-memory materialized rows for the tabular engine; omitted (null) in persisted workspace v3. */
   csv: CsvPayload | null;
-  source: CsvSourceKind | null;
+  source: DataSourceKind | null;
   fileName: string | null;
   error: string | null;
   loadedAt: number | null;
@@ -41,7 +52,14 @@ export type CsvSourceData = {
   httpColumnRenames: HttpColumnRename[];
 };
 
-export type CsvSourceNode = Node<CsvSourceData, "csvSource">;
+export type DataSourceNode = Node<DataSourceData, "dataSource">;
+
+/** @deprecated Use DataSourceData */
+export type CsvSourceData = DataSourceData;
+/** @deprecated Use DataSourceKind */
+export type CsvSourceKind = DataSourceKind;
+/** @deprecated Use DataSourceNode */
+export type CsvSourceNode = DataSourceNode;
 
 /** Key/value row for CSV source HTTP query params or headers. */
 export type HttpFetchKv = {
@@ -303,7 +321,7 @@ export type AggregateNodeData = {
 export type AggregateNode = Node<AggregateNodeData, "aggregate">;
 
 export type AppNode =
-  | CsvSourceNode
+  | DataSourceNode
   | FilterNode
   | VisualizationNode
   | MergeUnionNode
@@ -566,7 +584,12 @@ export const defaultAggregateData = (): AggregateNodeData => ({
   metrics: [],
 });
 
-export const defaultCsvSourceData = (): CsvSourceData => ({
+export const defaultDataSourceData = (): DataSourceData => ({
+  datasetId: null,
+  format: null,
+  headers: [],
+  rowCount: 0,
+  sample: [],
   csv: null,
   source: null,
   fileName: null,
@@ -585,6 +608,9 @@ export const defaultCsvSourceData = (): CsvSourceData => ({
   httpLastDiagnostics: null,
   httpColumnRenames: [],
 });
+
+/** @deprecated Use defaultDataSourceData */
+export const defaultCsvSourceData = defaultDataSourceData;
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
   return (

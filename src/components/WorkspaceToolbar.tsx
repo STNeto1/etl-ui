@@ -1,4 +1,6 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createDatasetStore } from "../dataset/datasetStore";
+import type { DatasetMeta } from "../dataset/types";
 import type { WorkspaceIndex } from "../persistence/workspaceStore";
 import type { WorkspaceTemplateId, WorkspaceTemplateMeta } from "../workspace/workspaceTemplates";
 
@@ -50,6 +52,21 @@ export function WorkspaceToolbar({
 }: WorkspaceToolbarProps) {
   const canDelete = workspaceIndex.items.length > 1;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [datasetsOpen, setDatasetsOpen] = useState(false);
+  const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+
+  useEffect(() => {
+    if (!datasetsOpen) return;
+    void (async () => {
+      const store = createDatasetStore();
+      setDatasets(await store.list());
+    })();
+  }, [datasetsOpen]);
+
+  const refreshDatasets = async () => {
+    const store = createDatasetStore();
+    setDatasets(await store.list());
+  };
 
   return (
     <div className="pointer-events-auto absolute right-2 top-2 z-10 flex max-w-[min(100%,40rem)] flex-col items-end gap-1.5">
@@ -82,6 +99,14 @@ export function WorkspaceToolbar({
             onClick={() => void onDeleteWorkspace()}
           >
             Delete
+          </button>
+          <button
+            type="button"
+            className={btnClass}
+            onClick={() => setDatasetsOpen((o) => !o)}
+            title="Indexed datasets (replace via Data source node file picker)"
+          >
+            Datasets
           </button>
           <button type="button" className={btnClass} onClick={onExportWorkspace}>
             Export
@@ -153,6 +178,55 @@ export function WorkspaceToolbar({
         <p className="max-w-full rounded border border-red-200 bg-red-50 px-2 py-1 text-right text-[10px] text-red-800">
           {importError}
         </p>
+      ) : null}
+      {datasetsOpen ? (
+        <div className="max-h-56 max-w-full overflow-auto rounded border border-neutral-300 bg-white/98 p-2 text-left text-[11px] shadow-md">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-medium text-neutral-800">Stored datasets</span>
+            <button type="button" className={btnClass} onClick={() => void refreshDatasets()}>
+              Refresh
+            </button>
+          </div>
+          {datasets.length === 0 ? (
+            <p className="text-neutral-500">
+              No datasets yet. Load a file on the data source node.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {datasets.map((d) => (
+                <li
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-1 border-b border-neutral-100 py-1 last:border-b-0"
+                >
+                  <span className="min-w-0 break-all font-mono text-[10px] text-neutral-700">
+                    {d.id}
+                  </span>
+                  <span className="shrink-0 text-neutral-500">
+                    {d.format} · {d.rowCount.toLocaleString()} rows ·{" "}
+                    {(d.bytes / (1024 * 1024)).toFixed(1)} MiB
+                  </span>
+                  <button
+                    type="button"
+                    className={`${btnClass} shrink-0 text-red-800 hover:bg-red-50`}
+                    onClick={() => {
+                      void (async () => {
+                        const store = createDatasetStore();
+                        await store.delete(d.id);
+                        await refreshDatasets();
+                      })();
+                    }}
+                  >
+                    Delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-[10px] text-neutral-500">
+            Replace a workspace dataset from the Data source node (Load tab). Deleting here may
+            break workspaces that still reference the id until you reload a file.
+          </p>
+        </div>
       ) : null}
     </div>
   );

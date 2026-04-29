@@ -5,14 +5,14 @@ function parseEnvPositiveInt(raw: string | undefined, fallback: number): number 
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** Max raw file bytes for CSV or NDJSON (default 200 MiB). */
+/** Max raw file bytes for CSV or NDJSON (default 2 GiB; datasets stored out-of-graph). */
 export function getMaxCsvNdjsonBytes(): number {
-  return parseEnvPositiveInt(import.meta.env.VITE_MAX_CSV_NDJSON_BYTES, 200 * 1024 * 1024);
+  return parseEnvPositiveInt(import.meta.env.VITE_MAX_CSV_NDJSON_BYTES, 2 * 1024 * 1024 * 1024);
 }
 
-/** Max raw file bytes for JSON documents (default 50 MiB). */
+/** Max raw file bytes for JSON documents (default 100 MiB). */
 export function getMaxJsonBytes(): number {
-  return parseEnvPositiveInt(import.meta.env.VITE_MAX_JSON_BYTES, 50 * 1024 * 1024);
+  return parseEnvPositiveInt(import.meta.env.VITE_MAX_JSON_BYTES, 100 * 1024 * 1024);
 }
 
 /** Max parsed rows for any ingest path (default 1_000_000). */

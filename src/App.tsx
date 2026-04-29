@@ -24,7 +24,7 @@ import { useGraphHistory } from "./workspace/useGraphHistory";
 import "@xyflow/react/dist/style.css";
 import { NodePaletteSidebar } from "./components/NodePaletteSidebar";
 import { WorkspaceToolbar } from "./components/WorkspaceToolbar";
-import { CsvSourceNode } from "./nodes/CsvSourceNode";
+import { DataSourceNode } from "./nodes/DataSourceNode";
 import { FilterNode } from "./nodes/FilterNode";
 import { JoinNode } from "./nodes/JoinNode";
 import { MergeUnionNode } from "./nodes/MergeUnionNode";
@@ -46,10 +46,10 @@ import { ConstantColumnNode } from "./nodes/ConstantColumnNode";
 import { PivotUnpivotNode } from "./nodes/PivotUnpivotNode";
 import type { AppNode } from "./types/flow";
 import {
-  CSV_SOURCE_NODE_ID,
+  DATA_SOURCE_NODE_ID,
   DND_PALETTE_MIME,
   defaultConditionalData,
-  defaultCsvSourceData,
+  defaultDataSourceData,
   defaultDownloadData,
   defaultFilterData,
   defaultJoinData,
@@ -91,7 +91,7 @@ import {
 } from "./workspace/workspaceTemplates";
 
 const nodeTypes = {
-  csvSource: CsvSourceNode,
+  dataSource: DataSourceNode,
   filter: FilterNode,
   mergeUnion: MergeUnionNode,
   join: JoinNode,
@@ -295,7 +295,7 @@ function FlowWorkspace() {
           setImportError("Could not read file.");
           return;
         }
-        const snap = parseWorkspaceJsonText(text);
+        const snap = await parseWorkspaceJsonText(text);
         if (snap == null) {
           setImportError("Invalid or unsupported workspace JSON.");
           return;
@@ -366,28 +366,28 @@ function FlowWorkspace() {
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {
-      const resetSource = changes.some((c) => c.type === "remove" && c.id === CSV_SOURCE_NODE_ID);
+      const resetSource = changes.some((c) => c.type === "remove" && c.id === DATA_SOURCE_NODE_ID);
       const appliedChanges = changes.filter(
-        (c) => !(c.type === "remove" && c.id === CSV_SOURCE_NODE_ID),
+        (c) => !(c.type === "remove" && c.id === DATA_SOURCE_NODE_ID),
       );
       let next = applyNodeChanges(appliedChanges, nodesSnapshot);
 
       if (resetSource) {
-        const stillThere = next.some((n) => n.id === CSV_SOURCE_NODE_ID);
+        const stillThere = next.some((n) => n.id === DATA_SOURCE_NODE_ID);
         if (stillThere) {
           next = next.map((n) =>
-            n.id === CSV_SOURCE_NODE_ID && n.type === "csvSource"
-              ? { ...n, data: defaultCsvSourceData() }
+            n.id === DATA_SOURCE_NODE_ID && n.type === "dataSource"
+              ? { ...n, data: defaultDataSourceData() }
               : n,
           );
         } else {
           next = [
             ...next,
             {
-              id: CSV_SOURCE_NODE_ID,
-              type: "csvSource" as const,
+              id: DATA_SOURCE_NODE_ID,
+              type: "dataSource" as const,
               position: { x: 0, y: 0 },
-              data: defaultCsvSourceData(),
+              data: defaultDataSourceData(),
             },
           ];
         }
