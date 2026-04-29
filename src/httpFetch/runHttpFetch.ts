@@ -8,6 +8,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** Coerce a JSON value into a tabular string cell; objects and arrays become JSON text. */
+function jsonLeafToCell(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "bigint") return String(value);
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+  return String(value);
+}
+
+/** Max characters returned on failed HTTP body parse (for UI preview). */
+const PARSE_ERROR_BODY_PREVIEW_MAX = 14_000;
+
+export function truncateForParseErrorPreview(
+  text: string,
+  max = PARSE_ERROR_BODY_PREVIEW_MAX,
+): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n… (truncated)`;
+}
+
+/** True when the load cannot produce a table until JSON shape or path is fixed (also used to clear stale CSV / edges). */
+export function isJsonTabularShapeError(message: string): boolean {
+  return (
+    message.includes("We need a JSON array of row objects") ||
+    message.includes("JSON array path") ||
+    message.includes("JSON root must be an array of objects") ||
+    message.includes("JSON array must contain only objects") ||
+    message.includes("Cannot use an empty JSON array path") ||
+    message.includes("Response is not valid JSON") ||
+    message.includes("NDJSON line")
+  );
+}
+
 function extractArrayAtJsonPath(
   data: unknown,
   path: string,
@@ -18,19 +58,26 @@ function extractArrayAtJsonPath(
     .filter(Boolean);
   if (segments.length === 0) {
     if (!Array.isArray(data)) {
-      return { error: "JSON root must be an array of objects when JSON array path is empty" };
+      return {
+        error:
+          "Cannot use an empty JSON array path. Use dot-separated keys (e.g. data.items) where each step is an object until the final array, or clear the path and use JSON whose root is [...] of row objects.",
+      };
     }
     return { array: data };
   }
   let cur: unknown = data;
   for (const seg of segments) {
     if (!isRecord(cur)) {
-      return { error: `JSON path "${path}": expected object before "${seg}"` };
+      return {
+        error: `JSON array path "${path}": expected an object before "${seg}" so we can keep walking to the row array. Got something that is not an object—check the path or response shape.`,
+      };
     }
     cur = cur[seg];
   }
   if (!Array.isArray(cur)) {
-    return { error: `JSON path "${path}": value is not an array` };
+    return {
+      error: `JSON array path "${path}": that location is not an array. Set the path to the key whose value is the table rows (an array of objects), or adjust the response.`,
+    };
   }
   return { array: cur };
 }
@@ -55,7 +102,7 @@ function objectsArrayToCsvPayload(items: unknown[]): { csv: CsvPayload } | { err
     const obj = item as Record<string, unknown>;
     const row: Record<string, string> = {};
     for (const h of headers) {
-      row[h] = String(obj[h] ?? "");
+      row[h] = jsonLeafToCell(obj[h]);
     }
     return row;
   });
@@ -81,7 +128,10 @@ export function parseJsonArrayToCsvPayload(
     path.length === 0
       ? Array.isArray(data)
         ? { array: data }
-        : { error: "JSON root must be an array of objects" }
+        : {
+            error:
+              'We need a JSON array of row objects. The document root is not an array.\n\nFix one of:\n• Set “JSON array path” to the property that holds your rows (e.g. results if the body is {"results": [...] }).\n• Or use JSON whose top level is [...] with one object per row.\n\nThe source output stays off and downstream links from this node are dropped until a load succeeds.',
+          }
       : extractArrayAtJsonPath(data, path);
   if ("error" in extracted) return extracted;
   return objectsArrayToCsvPayload(extracted.array);
@@ -248,7 +298,14 @@ export type FetchToCsvResult =
       status: number;
       bodyByteLength: number;
     }
-  | { ok: false; error: string; status?: number; contentType?: string | null };
+  | {
+      ok: false;
+      error: string;
+      status?: number;
+      contentType?: string | null;
+      /** Present when HTTP succeeded but body parsing failed (for UI). */
+      responseBodySnippet?: string;
+    };
 
 function inferPostContentType(body: string): string {
   const t = body.trim();
@@ -326,7 +383,13 @@ export async function fetchToCsvPayload(
       const parsed = parseResponseBody(text, contentType, { jsonArrayPath });
       window.clearTimeout(timeoutId);
       if ("error" in parsed) {
-        return { ok: false, error: parsed.error, status: res.status, contentType };
+        return {
+          ok: false,
+          error: parsed.error,
+          status: res.status,
+          contentType,
+          responseBodySnippet: truncateForParseErrorPreview(text),
+        };
       }
       return {
         ok: true,

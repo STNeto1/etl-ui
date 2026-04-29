@@ -1,8 +1,22 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import Papa from "papaparse";
-import { Handle, Position, useReactFlow, type NodeProps } from "@xyflow/react";
+import { Handle, Position, useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
 import { buildCurlCommand } from "../httpFetch/buildCurl";
-import { buildRequestUrl, fetchToCsvPayload } from "../httpFetch/runHttpFetch";
+import { ingestLocalFileText } from "../httpFetch/ingestLocalDataFile";
+import {
+  buildRequestUrl,
+  fetchToCsvPayload,
+  isJsonTabularShapeError,
+  truncateForParseErrorPreview,
+} from "../httpFetch/runHttpFetch";
 import type {
   CsvPayload,
   CsvSourceData,
@@ -24,6 +38,41 @@ function newHttpColumnRename(): HttpColumnRename {
   return { id: crypto.randomUUID(), fromColumn: "", toColumn: "" };
 }
 
+function stripOutgoingSourceEdges(
+  setEdges: (fn: (edges: Edge[]) => Edge[]) => void,
+  sourceNodeId: string,
+): void {
+  setEdges((edges) => edges.filter((e) => e.source !== sourceNodeId));
+}
+
+function CsvSourceParseFailureHelp({ error, body }: { error: string; body: string | null }) {
+  const shape = isJsonTabularShapeError(error);
+  return (
+    <div
+      className="space-y-2 rounded border border-red-200 bg-red-50 px-2 py-2 text-[10px] text-red-900"
+      role="alert"
+    >
+      <p className="whitespace-pre-wrap leading-snug">{error}</p>
+      {shape && (
+        <p className="leading-snug text-red-800">
+          Downstream connections from this source are removed until you fix the path or payload and
+          load successfully again.
+        </p>
+      )}
+      {body != null && body.length > 0 && (
+        <details className="rounded border border-red-200/80 bg-white text-neutral-900">
+          <summary className="cursor-pointer select-none px-2 py-1 text-[10px] font-medium">
+            Show raw response / file body
+          </summary>
+          <div className="max-h-[220px] overflow-auto border-t border-red-100 p-2">
+            <pre className="whitespace-pre-wrap break-all font-mono text-[9px]">{body}</pre>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>): {
   payload: CsvPayload | null;
   error: string | null;
@@ -42,10 +91,13 @@ function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>
 }
 
 export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<SourceTab>("load");
+  const [parsePreviewBody, setParsePreviewBody] = useState<string | null>(null);
+  /** Last file read from disk (for re-parsing .json when JSON array path changes). */
+  const lastLocalFileRef = useRef<{ name: string; text: string } | null>(null);
 
   const columnTypes = useMemo(
     () => (data.csv != null ? inferColumnTypes(data.csv) : []),
@@ -65,6 +117,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
 
   const applySuccess = useCallback(
     (payload: CsvPayload, source: CsvSourceKind, fileName: string | null) => {
+      setParsePreviewBody(null);
       patchData({
         csv: payload,
         source,
@@ -76,36 +129,95 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     [patchData],
   );
 
+  const httpJsonArrayPath = data.httpJsonArrayPath ?? "";
+
+  const reapplyLastLocalJsonFile = useCallback(
+    (newPath: string) => {
+      const snap = lastLocalFileRef.current;
+      if (snap == null || !snap.name.toLowerCase().endsWith(".json")) return;
+
+      const result = ingestLocalFileText(snap.name, snap.text, newPath);
+      if ("error" in result) {
+        stripOutgoingSourceEdges(setEdges, id);
+        setParsePreviewBody(truncateForParseErrorPreview(snap.text));
+        patchData({
+          error: result.error,
+          csv: null,
+          source: null,
+          fileName: null,
+          loadedAt: null,
+        });
+        return;
+      }
+      setParsePreviewBody(null);
+      applySuccess(result.csv, "file", snap.name);
+    },
+    [applySuccess, id, patchData, setEdges],
+  );
+
+  const onJsonArrayPathInput = useCallback(
+    (e: FormEvent<HTMLInputElement>) => {
+      const value = e.currentTarget.value;
+      patchData({ httpJsonArrayPath: value });
+      reapplyLastLocalJsonFile(value);
+    },
+    [patchData, reapplyLastLocalJsonFile],
+  );
+
   const onPickFile = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
 
   const onFileChange = useCallback(
-    (e: ChangeEvent<HTMLInputElement>) => {
+    async (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       e.target.value = "";
       if (!file) return;
       setBusy(true);
-      Papa.parse<Record<string, string>>(file, {
-        header: true,
-        skipEmptyLines: "greedy",
-        transformHeader: (h) => h.trim(),
-        complete: (result) => {
-          setBusy(false);
-          const { payload, error } = payloadFromParseResult(result);
-          if (error) {
-            patchData({ error, csv: null, source: null, fileName: null, loadedAt: null });
-            return;
-          }
-          if (payload) applySuccess(payload, "file", file.name);
-        },
-      });
+      patchData({ error: null });
+      try {
+        const text = await file.text();
+        lastLocalFileRef.current = { name: file.name, text };
+        const result = ingestLocalFileText(file.name, text, httpJsonArrayPath);
+        const lower = file.name.toLowerCase();
+        if ("error" in result) {
+          stripOutgoingSourceEdges(setEdges, id);
+          const showBody =
+            lower.endsWith(".json") ||
+            lower.endsWith(".ndjson") ||
+            isJsonTabularShapeError(result.error);
+          setParsePreviewBody(showBody ? truncateForParseErrorPreview(text) : null);
+          patchData({
+            error: result.error,
+            csv: null,
+            source: null,
+            fileName: null,
+            loadedAt: null,
+          });
+          return;
+        }
+        applySuccess(result.csv, "file", file.name);
+      } catch {
+        lastLocalFileRef.current = null;
+        stripOutgoingSourceEdges(setEdges, id);
+        setParsePreviewBody(null);
+        patchData({
+          error: "Could not read file",
+          csv: null,
+          source: null,
+          fileName: null,
+          loadedAt: null,
+        });
+      } finally {
+        setBusy(false);
+      }
     },
-    [applySuccess, patchData],
+    [applySuccess, httpJsonArrayPath, id, patchData, setEdges],
   );
 
   const onUseTemplate = useCallback(async () => {
     setBusy(true);
+    setParsePreviewBody(null);
     patchData({ error: null });
     try {
       const res = await fetch("/template.csv");
@@ -130,7 +242,10 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         patchData({ error, csv: null, source: null, fileName: null, loadedAt: null });
         return;
       }
-      if (payload) applySuccess(payload, "template", "template.csv");
+      if (payload) {
+        lastLocalFileRef.current = null;
+        applySuccess(payload, "template", "template.csv");
+      }
     } catch {
       patchData({
         error: "Failed to fetch template",
@@ -142,14 +257,13 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     } finally {
       setBusy(false);
     }
-  }, [applySuccess, patchData]);
+  }, [applySuccess, id, patchData, setEdges]);
 
   const httpUrl = data.httpUrl ?? "";
   const httpParams = useMemo(() => data.httpParams ?? [], [data.httpParams]);
   const httpHeaders = useMemo(() => data.httpHeaders ?? [], [data.httpHeaders]);
   const httpMethod = data.httpMethod ?? "GET";
   const httpBody = data.httpBody ?? "";
-  const httpJsonArrayPath = data.httpJsonArrayPath ?? "";
   const httpTimeoutMs = data.httpTimeoutMs ?? 60_000;
   const httpMaxRetries = data.httpMaxRetries ?? 1;
   const httpAutoRefreshSec = data.httpAutoRefreshSec ?? 0;
@@ -167,6 +281,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
   const onHttpRefresh = useCallback(async () => {
     const built = buildRequestUrl(httpUrl, httpParams);
     if ("error" in built) {
+      setParsePreviewBody(null);
       patchData({ error: built.error });
       return;
     }
@@ -183,6 +298,8 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     });
     setBusy(false);
     if (result.ok) {
+      setParsePreviewBody(null);
+      lastLocalFileRef.current = null;
       let fileLabel: string;
       try {
         fileLabel = new URL(built.url).host;
@@ -203,7 +320,20 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         },
       });
     } else {
-      patchData({ error: result.error, httpLastDiagnostics: null });
+      const snippet =
+        "responseBodySnippet" in result && result.responseBodySnippet != null
+          ? result.responseBodySnippet
+          : null;
+      setParsePreviewBody(snippet);
+      const shape = isJsonTabularShapeError(result.error);
+      if (shape) {
+        stripOutgoingSourceEdges(setEdges, id);
+      }
+      patchData({
+        error: result.error,
+        httpLastDiagnostics: null,
+        ...(shape ? { csv: null, source: null, fileName: null, loadedAt: null } : {}),
+      });
     }
   }, [
     httpBody,
@@ -214,7 +344,9 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
     httpParams,
     httpTimeoutMs,
     httpUrl,
+    id,
     patchData,
+    setEdges,
   ]);
 
   const httpRefreshRef = useRef(onHttpRefresh);
@@ -357,11 +489,17 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         className="px-1 pt-2"
       >
         <p className="text-sm font-medium text-neutral-900">Load data</p>
-        <div className="mt-2 flex flex-col gap-1.5">
+        <p className="mt-0.5 text-[10px] leading-snug text-neutral-500">
+          CSV, JSON array (optional path below), or NDJSON by file extension.
+        </p>
+        <div
+          className="nodrag nopan mt-2 flex flex-col gap-1.5"
+          onPointerDownCapture={(e) => e.stopPropagation()}
+        >
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,.json,application/json,.ndjson,application/x-ndjson"
             className="hidden"
             onChange={onFileChange}
           />
@@ -371,7 +509,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             onClick={onPickFile}
             className="rounded border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
           >
-            Choose CSV file…
+            Choose CSV or JSON file…
           </button>
           <button
             type="button"
@@ -381,6 +519,17 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
           >
             Use template
           </button>
+
+          <label className="block">
+            <span className="text-[11px] font-medium text-neutral-700">JSON array path</span>
+            <input
+              value={httpJsonArrayPath}
+              onInput={onJsonArrayPathInput}
+              aria-label="Dot path to JSON array when loading a .json file with an object root"
+              placeholder="e.g. data (empty = root must be an array)"
+              className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
+            />
+          </label>
         </div>
         <div className="mt-2 text-xs text-neutral-600">
           {busy && <span>Loading…</span>}
@@ -397,8 +546,9 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             </span>
           )}
           {!busy && status === "error" && (
-            <span className="text-red-600" role="alert">
-              {data.error}
+            <span className="text-neutral-600">
+              Fix the error below, or edit JSON array path to re-parse the last .json file in
+              memory.
             </span>
           )}
         </div>
@@ -513,7 +663,7 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
             <span className="text-[11px] font-medium text-neutral-700">JSON array path</span>
             <input
               value={httpJsonArrayPath}
-              onChange={(e) => patchData({ httpJsonArrayPath: e.target.value })}
+              onInput={onJsonArrayPathInput}
               aria-label="Dot path to JSON array when root is an object"
               placeholder="e.g. data (empty = root must be an array)"
               className="mt-1 w-full rounded border border-neutral-300 bg-white px-2 py-1 text-[11px] text-neutral-900"
@@ -660,15 +810,6 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
               )}
             </div>
           )}
-
-          {data.error != null && tab === "url" && (
-            <p
-              className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] text-amber-900"
-              role="alert"
-            >
-              {data.error}
-            </p>
-          )}
         </div>
       </div>
 
@@ -725,7 +866,21 @@ export function CsvSourceNode({ id, data }: NodeProps<CsvSourceNode>) {
         )}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      {data.error != null && (
+        <div className="mt-2 px-1">
+          <CsvSourceParseFailureHelp error={data.error} body={parsePreviewBody} />
+        </div>
+      )}
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        isConnectable={data.csv != null && data.error == null}
+        className={[
+          "bg-neutral-400!",
+          data.csv == null || data.error != null ? "opacity-35" : "",
+        ].join(" ")}
+      />
     </div>
   );
 }

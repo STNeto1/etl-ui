@@ -3,6 +3,7 @@ import {
   buildRequestUrl,
   enhanceFetchErrorMessage,
   fetchToCsvPayload,
+  isJsonTabularShapeError,
   parseCsvText,
   parseJsonArrayToCsvPayload,
   parseNdjsonLinesToCsvPayload,
@@ -75,11 +76,39 @@ describe("parseJsonArrayToCsvPayload", () => {
   });
 
   it("returns error for non-array JSON", () => {
-    expect("error" in parseJsonArrayToCsvPayload("{}")).toBe(true);
+    const r = parseJsonArrayToCsvPayload("{}");
+    expect("error" in r).toBe(true);
+    if ("error" in r) {
+      expect(r.error).toContain("We need a JSON array of row objects");
+      expect(isJsonTabularShapeError(r.error)).toBe(true);
+    }
   });
 
   it("allows empty array", () => {
     expect(parseJsonArrayToCsvPayload("[]")).toEqual({ csv: { headers: [], rows: [] } });
+  });
+
+  it("stringifies nested objects and arrays for valid JSON in cells", () => {
+    const text = JSON.stringify([
+      { id: 1, meta: { a: 1 }, tags: ["x"] },
+      { id: 2, meta: null, tags: [] },
+    ]);
+    const r = parseJsonArrayToCsvPayload(text);
+    expect("csv" in r).toBe(true);
+    if ("csv" in r) {
+      expect(r.csv.headers).toEqual(["id", "meta", "tags"]);
+      expect(r.csv.rows[0]).toEqual({
+        id: "1",
+        meta: '{"a":1}',
+        tags: '["x"]',
+      });
+      expect(r.csv.rows[1]).toEqual({
+        id: "2",
+        meta: "",
+        tags: "[]",
+      });
+      expect(JSON.parse(r.csv.rows[0]!.tags)).toEqual(["x"]);
+    }
   });
 });
 
@@ -134,6 +163,23 @@ describe("parseResponseBody", () => {
     });
     expect(r).toEqual({ csv: { headers: ["k"], rows: [{ k: "1" }] } });
   });
+
+  it("stringifies nested array fields in JSON responses", () => {
+    const body = JSON.stringify([{ id: 1, tags: ["a", "b"] }]);
+    const r = parseResponseBody(body, "application/json");
+    expect(r).toEqual({
+      csv: {
+        headers: ["id", "tags"],
+        rows: [{ id: "1", tags: '["a","b"]' }],
+      },
+    });
+  });
+});
+
+describe("isJsonTabularShapeError", () => {
+  it("is false for HTTP status errors", () => {
+    expect(isJsonTabularShapeError("HTTP 404 Not Found")).toBe(false);
+  });
 });
 
 describe("enhanceFetchErrorMessage", () => {
@@ -182,6 +228,21 @@ describe("fetchToCsvPayload", () => {
       expect(r.contentType).toBe("application/json");
       expect(r.status).toBe(200);
       expect(r.bodyByteLength).toBe(new TextEncoder().encode('[{"id":"1"}]').length);
+    }
+  });
+
+  it("returns error and body snippet when JSON shape is wrong on ok response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "Content-Type": "application/json" }),
+      text: async () => "{}",
+    }) as typeof fetch;
+    const r = await fetchToCsvPayload("https://example.com/x", [], { jsonArrayPath: "" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain("We need a JSON array of row objects");
+      expect(r.responseBodySnippet).toBe("{}");
     }
   });
 });
