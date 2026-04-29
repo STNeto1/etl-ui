@@ -23,6 +23,10 @@ import { applyLimitSample } from "../limitSample/applyLimitSample";
 import { applyUnnestArrayColumn } from "../unnest/applyUnnestArrayColumn";
 import { applyConstantColumns } from "../constantColumn/applyConstantColumns";
 import { applyPivotUnpivot } from "../pivotUnpivot/applyPivotUnpivot";
+import { logPlannerFallback, trySqlRowSourceForNode } from "./tabularSqlPlanner";
+
+const TABULAR_DEBUG = true
+  // typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 
 function visitKey(nodeId: string, branch: string | null): string {
   return `${nodeId}::${branch ?? "node"}`;
@@ -171,14 +175,43 @@ export async function getTabularOutputAsync(
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
+  opts?: { limit?: number },
 ): Promise<RowSource | null> {
+  const started = performance.now();
+  try {
+    const sqlPlanned = await trySqlRowSourceForNode(nodeId, null, nodes, edges, opts);
+    if (sqlPlanned != null) {
+      if (TABULAR_DEBUG) {
+        console.debug(
+          `[tabular] node=${nodeId} path=planner ms=${(performance.now() - started).toFixed(1)}`,
+        );
+      }
+      return sqlPlanned;
+    }
+  } catch (error) {
+    logPlannerFallback(
+      `node ${nodeId}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  logPlannerFallback(`node ${nodeId}: planner unsupported, using legacy path`);
+
   const streamed = await tryStreamingRowSourceForNode(nodeId, null, nodes, edges);
   if (streamed != null) {
+    if (TABULAR_DEBUG) {
+      console.debug(
+        `[tabular] node=${nodeId} path=stream-fallback ms=${(performance.now() - started).toFixed(1)}`,
+      );
+    }
     return streamed;
   }
 
   const withCsv = await materializeDataSourcesForResolve(nodes);
   const payload = getTabularOutputWithHandle(nodeId, null, withCsv, edges, visited);
+  if (TABULAR_DEBUG) {
+    console.debug(
+      `[tabular] node=${nodeId} path=legacy-materialize ms=${(performance.now() - started).toFixed(1)}`,
+    );
+  }
   return payload != null ? rowSourceFromPayload(payload) : null;
 }
 
@@ -187,7 +220,32 @@ export async function getTabularOutputForEdgeAsync(
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
+  opts?: { limit?: number },
 ): Promise<RowSource | null> {
+  const started = performance.now();
+  try {
+    const sqlPlanned = await trySqlRowSourceForNode(
+      incomingEdge.source,
+      incomingEdge.sourceHandle ?? null,
+      nodes,
+      edges,
+      opts,
+    );
+    if (sqlPlanned != null) {
+      if (TABULAR_DEBUG) {
+        console.debug(
+          `[tabular] edge=${incomingEdge.id} path=planner ms=${(performance.now() - started).toFixed(1)}`,
+        );
+      }
+      return sqlPlanned;
+    }
+  } catch (error) {
+    logPlannerFallback(
+      `edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  logPlannerFallback(`edge ${incomingEdge.id}: planner unsupported, using legacy path`);
+
   const streamed = await tryStreamingRowSourceForNode(
     incomingEdge.source,
     incomingEdge.sourceHandle ?? null,
@@ -195,6 +253,11 @@ export async function getTabularOutputForEdgeAsync(
     edges,
   );
   if (streamed != null) {
+    if (TABULAR_DEBUG) {
+      console.debug(
+        `[tabular] edge=${incomingEdge.id} path=stream-fallback ms=${(performance.now() - started).toFixed(1)}`,
+      );
+    }
     return streamed;
   }
 
@@ -206,6 +269,11 @@ export async function getTabularOutputForEdgeAsync(
     edges,
     visited,
   );
+  if (TABULAR_DEBUG) {
+    console.debug(
+      `[tabular] edge=${incomingEdge.id} path=legacy-materialize ms=${(performance.now() - started).toFixed(1)}`,
+    );
+  }
   return payload != null ? rowSourceFromPayload(payload) : null;
 }
 
@@ -215,7 +283,26 @@ export async function getTabularPayloadForEdgeAsync(
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
+  opts?: { limit?: number },
 ): Promise<CsvPayload | null> {
+  try {
+    const sqlPlanned = await trySqlRowSourceForNode(
+      incomingEdge.source,
+      incomingEdge.sourceHandle ?? null,
+      nodes,
+      edges,
+      opts,
+    );
+    if (sqlPlanned != null) {
+      return collectRowSourceToPayload(sqlPlanned);
+    }
+  } catch (error) {
+    logPlannerFallback(
+      `payload edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+    );
+  }
+  logPlannerFallback(`payload edge ${incomingEdge.id}: planner unsupported, using legacy path`);
+
   const withCsv = await materializeDataSourcesForResolve(nodes);
   return getTabularOutputWithHandle(
     incomingEdge.source,

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
-import { countRowsInRowSource, type RowSource } from "../graph/rowSource";
 import type {
   AppNode,
   VisualizationNode as VisualizationNodeType,
@@ -11,7 +10,6 @@ import { visualizationUpstreamStaleKey } from "../graph/tabularStaleKey";
 
 const DEFAULT_PREVIEW_ROWS = 100;
 const MAX_PREVIEW_ROWS = 10_000;
-const PREVIEW_QUERY_TIMEOUT_MS = 15_000;
 
 type VizResolution =
   | { kind: "loading" }
@@ -63,22 +61,13 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       const edge = incoming[0]!;
       const parentId = edge.source;
       const parent = nodes.find((n) => n.id === parentId);
-      const rs = await Promise.race<RowSource | null | "timeout">([
-        getTabularOutputForEdgeAsync(edge, nodes, edges),
-        new Promise<"timeout">((resolve) => {
-          window.setTimeout(() => resolve("timeout"), PREVIEW_QUERY_TIMEOUT_MS);
-        }),
-      ]);
+      const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
+      const rs = await getTabularOutputForEdgeAsync(edge, nodes, edges, new Set(), { limit: cap });
       if (cancelled) return;
-      if (rs === "timeout") {
-        setResolution({ kind: "no-data" });
-        return;
-      }
       if (rs == null) {
         setResolution({ kind: "no-data" });
         return;
       }
-      const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
       const displayRows: Record<string, string>[] = [];
       const totalRowsResolved = rs.rowCount ?? null;
 
@@ -89,19 +78,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       const totalRows = totalRowsResolved;
 
       const viaFilter = parent?.type === "filter";
-      let rowsBeforeFilter: number | null = null;
-      if (viaFilter && parent != null) {
-        const intoFilter = edges.filter((e) => e.target === parent.id)[0];
-        if (intoFilter != null) {
-          const beforeRs = await getTabularOutputForEdgeAsync(intoFilter, nodes, edges);
-          if (beforeRs != null) {
-            rowsBeforeFilter =
-              beforeRs.rowCount !== undefined
-                ? beforeRs.rowCount
-                : await countRowsInRowSource(beforeRs);
-          }
-        }
-      }
+      const rowsBeforeFilter: number | null = null;
 
       setResolution({
         kind: "ready",

@@ -7,8 +7,15 @@ import { linesFromUint8Stream } from "./lineBytes";
 import type { DatasetFormat, DatasetId, DatasetMeta, DatasetScanOptions } from "./types";
 import { ensureDuckDbReady } from "../engine/duckdb";
 import { getDuckDb } from "../engine/duckdb";
+import { quoteSqlIdent, quoteSqlString } from "../sql/sqlQuote";
 
 export type { DatasetFormat, DatasetId, DatasetMeta, DatasetScanOptions };
+
+export type DatasetSqlSource = {
+  headers: string[];
+  fromSql: string;
+  cleanup(): Promise<void>;
+};
 
 const DB_NAME = "etl-ui-datasets";
 const DB_VERSION = 1;
@@ -57,14 +64,6 @@ function normalizeScanRow(
     out[h] = sparse[h] ?? "";
   }
   return out;
-}
-
-function quoteSqlIdent(v: string): string {
-  return `"${v.replaceAll('"', '""')}"`;
-}
-
-function quoteSqlString(v: string): string {
-  return `'${v.replaceAll("'", "''")}'`;
 }
 
 function scalarToCell(value: unknown): string {
@@ -295,6 +294,17 @@ async function persistIdbRow(row: IdbRow): Promise<void> {
   db.close();
 }
 
+async function readIdbRowById(id: DatasetId): Promise<IdbRow | null> {
+  const db = await openDb();
+  if (db == null) return null;
+  const tx = db.transaction(STORE, "readonly");
+  const raw = await requestToPromise(tx.objectStore(STORE).get(id));
+  await transactionDone(tx);
+  db.close();
+  if (raw == null || typeof raw !== "object") return null;
+  return raw as IdbRow;
+}
+
 /**
  * Stream rows to NDJSON storage (OPFS append or inline string) without holding all rows in memory.
  */
@@ -428,9 +438,54 @@ export interface DatasetStore {
   scan(id: DatasetId, opts?: DatasetScanOptions): AsyncIterable<Record<string, string>>;
   delete(id: DatasetId): Promise<void>;
   list(): Promise<DatasetMeta[]>;
+  prepareSqlSource(id: DatasetId): Promise<DatasetSqlSource | null>;
 }
 
 export function createDatasetStore(): DatasetStore {
+  const sqlTableByDatasetId = new Map<DatasetId, { tableName: string; headers: string[] }>();
+  const sqlInitByDatasetId = new Map<DatasetId, Promise<{ tableName: string; headers: string[] }>>();
+
+  async function ensureSqlTableForDataset(id: DatasetId): Promise<{ tableName: string; headers: string[] } | null> {
+    const existing = sqlTableByDatasetId.get(id);
+    if (existing != null) return existing;
+    const inFlight = sqlInitByDatasetId.get(id);
+    if (inFlight != null) return inFlight;
+
+    const init = (async () => {
+      const row = await readIdbRowById(id);
+      if (row == null) throw new Error(`dataset ${id} not found`);
+      const db = await getDuckDb();
+      const fileName = `dataset-${id}-${crypto.randomUUID()}.ndjson`;
+      const tableName = `dataset_sql_${id.replaceAll("-", "_")}_${crypto.randomUUID().replaceAll("-", "_")}`;
+      if (row.opfsRelPath != null) {
+        const opfsFile = await readOpfsNdjsonFile(id);
+        if (opfsFile == null) throw new Error(`dataset ${id} OPFS rows missing`);
+        await db.registerFileHandle(fileName, opfsFile, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+      } else {
+        await db.registerFileText(fileName, row.bodyInline ?? "");
+      }
+      const conn = await db.connect();
+      try {
+        await conn.query(
+          `CREATE OR REPLACE TABLE ${quoteSqlIdent(tableName)} AS SELECT * FROM read_ndjson_auto(${quoteSqlString(fileName)})`,
+        );
+      } finally {
+        await conn.close();
+        await db.dropFile(fileName).catch(() => undefined);
+      }
+      const cached = { tableName, headers: [...(row.meta.headers ?? [])] };
+      sqlTableByDatasetId.set(id, cached);
+      return cached;
+    })();
+
+    sqlInitByDatasetId.set(id, init);
+    try {
+      return await init;
+    } finally {
+      sqlInitByDatasetId.delete(id);
+    }
+  }
+
   return {
     async putCsv(input) {
       await ensureDuckDbReady();
@@ -520,26 +575,14 @@ export function createDatasetStore(): DatasetStore {
     },
 
     async meta(id) {
-      const db = await openDb();
-      if (db == null) return null;
-      const tx = db.transaction(STORE, "readonly");
-      const raw = await requestToPromise(tx.objectStore(STORE).get(id));
-      await transactionDone(tx);
-      db.close();
-      if (raw == null || typeof raw !== "object") return null;
-      return (raw as IdbRow).meta ?? null;
+      const row = await readIdbRowById(id);
+      return row?.meta ?? null;
     },
 
     async *scan(id, opts) {
       await ensureDuckDbReady();
-      const db = await openDb();
-      if (db == null) return;
-      const tx = db.transaction(STORE, "readonly");
-      const raw = await requestToPromise(tx.objectStore(STORE).get(id));
-      await transactionDone(tx);
-      db.close();
-      if (raw == null || typeof raw !== "object") return;
-      const row = raw as IdbRow;
+      const row = await readIdbRowById(id);
+      if (row == null) return;
       const headers = row.meta.headers ?? [];
       const offset = Math.max(0, opts?.offset ?? 0);
       const limit = opts?.limit;
@@ -556,6 +599,21 @@ export function createDatasetStore(): DatasetStore {
 
     async delete(id) {
       await deleteOpfsDatasetDir(id);
+      const cached = sqlTableByDatasetId.get(id);
+      if (cached != null) {
+        const duck = await getDuckDb().catch(() => null);
+        if (duck != null) {
+          const conn = await duck.connect().catch(() => null);
+          if (conn != null) {
+            try {
+              await conn.query(`DROP TABLE IF EXISTS ${quoteSqlIdent(cached.tableName)}`);
+            } finally {
+              await conn.close();
+            }
+          }
+        }
+        sqlTableByDatasetId.delete(id);
+      }
       const db = await openDb();
       if (db == null) return;
       const tx = db.transaction(STORE, "readwrite");
@@ -576,6 +634,17 @@ export function createDatasetStore(): DatasetStore {
         .map((r) => r.meta)
         .filter((m): m is DatasetMeta => m != null)
         .sort((a, b) => b.createdAt - a.createdAt);
+    },
+
+    async prepareSqlSource(id) {
+      await ensureDuckDbReady();
+      const prepared = await ensureSqlTableForDataset(id);
+      if (prepared == null) return null;
+      return {
+        headers: [...prepared.headers],
+        fromSql: quoteSqlIdent(prepared.tableName),
+        cleanup: async () => {},
+      };
     },
   };
 }

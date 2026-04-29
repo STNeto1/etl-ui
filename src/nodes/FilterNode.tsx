@@ -2,7 +2,6 @@ import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { tryUpstreamHeadersForIncomingEdge } from "../graph/upstreamHeaders";
-import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import type { AppNode, FilterNodeData, FilterNode as FilterNodeType } from "../types/flow";
 
 export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
@@ -14,13 +13,12 @@ export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
   const combineAll = data.combineAll ?? true;
 
   const incomingEdge = useMemo(() => edges.find((e) => e.target === id) ?? null, [edges, id]);
-  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => {
     if (incomingEdge == null) return [];
     const fast = tryUpstreamHeadersForIncomingEdge(incomingEdge, nodes, edges);
     if (fast != null && fast.length > 0) return fast;
-    return payload?.headers ?? [];
-  }, [incomingEdge, nodes, edges, payload]);
+    return [];
+  }, [incomingEdge, nodes, edges]);
 
   const patchData = useCallback(
     (patch: Partial<FilterNodeData>) => {
