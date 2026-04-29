@@ -404,4 +404,133 @@ describe("getTabularOutputAsync", () => {
     expect(text).toContain("name,note");
     expect(text).toContain('Ada,"Hello, world"');
   });
+
+  it("supports switch branch and default edge outputs", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["id", "country", "name"],
+      rows: [
+        { id: "1", country: "Chile", name: "Sheryl" },
+        { id: "2", country: "US", name: "Ada" },
+        { id: "3", country: "Chile", name: "Roy" },
+      ],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "sw",
+        type: "switch",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Switch",
+          branches: [
+            {
+              id: "b1",
+              label: "Chile",
+              combineAll: true,
+              rules: [{ id: "r1", column: "country", op: "eq", value: "Chile" }],
+            },
+          ],
+        },
+      },
+      {
+        id: "vizb",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
+      {
+        id: "vizd",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
+    ];
+    const edges: Edge[] = [
+      { id: "e1", source: "src", target: "sw" },
+      { id: "e2", source: "sw", sourceHandle: "branch:b1", target: "vizb" },
+      { id: "e3", source: "sw", sourceHandle: "switch-default", target: "vizd" },
+    ];
+
+    const branch = await collectRowSourceToPayload(
+      (await getTabularOutputAsync("vizb", nodes, edges))!,
+    );
+    const fallback = await collectRowSourceToPayload(
+      (await getTabularOutputAsync("vizd", nodes, edges))!,
+    );
+    expect(branch.rows.map((r) => r.id)).toEqual(["1", "3"]);
+    expect(fallback.rows.map((r) => r.id)).toEqual(["2"]);
+  });
+
+  it("keeps cast date output as ISO strings", async () => {
+    const store = getAppDatasetStore();
+    const csv = {
+      headers: ["Subscription Date", "Email"],
+      rows: [
+        { "Subscription Date": "2021-04-17", Email: "a@example.com" },
+        { "Subscription Date": "2020-08-24", Email: "b@example.com" },
+      ],
+    };
+    const meta = await store.putNormalizedPayload(csv, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+      {
+        id: "cast",
+        type: "castColumns",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Cast",
+          casts: [
+            {
+              id: "c1",
+              column: "Subscription Date",
+              target: "date",
+            },
+          ],
+        },
+      },
+      {
+        id: "viz",
+        type: "visualization",
+        position: { x: 0, y: 0 },
+        data: { label: "Viz", previewRows: 5 },
+      },
+    ];
+    const edges: Edge[] = [
+      { id: "e1", source: "src", target: "cast" },
+      { id: "e2", source: "cast", target: "viz" },
+    ];
+    const out = await collectRowSourceToPayload(
+      (await getTabularOutputAsync("cast", nodes, edges))!,
+    );
+    expect(out.rows[0]?.["Subscription Date"]).toBe("2021-04-17");
+    expect(out.rows[1]?.["Subscription Date"]).toBe("2020-08-24");
+  });
 });

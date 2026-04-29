@@ -1,5 +1,5 @@
 import type { Edge } from "@xyflow/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppNode, CsvPayload } from "../types/flow";
 import { getTabularPayloadForEdgeAsync } from "./tabularOutput";
 import { upstreamSubgraphStaleKey } from "./tabularStaleKey";
@@ -11,6 +11,7 @@ export function useTabularPayloadFromEdge(
 ): { payload: CsvPayload | null; loading: boolean } {
   const [payload, setPayload] = useState<CsvPayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const requestSeqRef = useRef(0);
 
   /** Semantic key for inbound edge + upstream dataset/transforms — stable across React Flow reference churn */
   const incomingPayloadStaleKey = useMemo(() => {
@@ -19,6 +20,8 @@ export function useTabularPayloadFromEdge(
   }, [incoming, edges, nodes]);
 
   useEffect(() => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
     if (incoming == null) {
       setPayload(null);
       setLoading(false);
@@ -28,14 +31,13 @@ export function useTabularPayloadFromEdge(
     setLoading(true);
     void getTabularPayloadForEdgeAsync(incoming, nodes, edges)
       .then((p) => {
-        if (!cancelled) {
+        if (!cancelled && requestSeq === requestSeqRef.current) {
           setPayload(p);
           setLoading(false);
         }
       })
       .catch(() => {
-        if (!cancelled) {
-          setPayload(null);
+        if (!cancelled && requestSeq === requestSeqRef.current) {
           setLoading(false);
         }
       });

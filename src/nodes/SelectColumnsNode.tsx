@@ -13,7 +13,7 @@ export function SelectColumnsNode({ id, data }: NodeProps<SelectColumnsNodeType>
   const edges = useEdges();
 
   const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
-  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
+  const { payload, loading } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => payload?.headers ?? [], [payload]);
   const selectedColumns = useMemo(() => data.selectedColumns ?? [], [data.selectedColumns]);
 
@@ -69,7 +69,7 @@ export function SelectColumnsNode({ id, data }: NodeProps<SelectColumnsNodeType>
           className="nodrag nopan mt-1 rounded border border-dashed border-neutral-200 bg-neutral-50 px-2 py-2 text-[11px] text-neutral-500"
           onPointerDownCapture={(event) => event.stopPropagation()}
         >
-          Upstream data is not available yet.
+          {loading ? "Loading upstream data…" : "Upstream data is not available yet."}
         </div>
       ) : (
         <div

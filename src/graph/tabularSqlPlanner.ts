@@ -3,6 +3,7 @@ import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { getDuckDb } from "../engine/duckdb";
 import { rulesApplicableToHeaders } from "../filter/rowMatches";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
+import { parseSwitchSourceHandle } from "../switch/branches";
 import { quoteSqlIdent, quoteSqlString } from "../sql/sqlQuote";
 import type {
   AggregateMetricDef,
@@ -187,7 +188,7 @@ function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): s
 }
 
 function castExpr(column: string, target: string): string {
-  const c = `COALESCE(${quoteSqlIdent(column)}, '')`;
+  const c = `COALESCE(CAST(${quoteSqlIdent(column)} AS VARCHAR), '')`;
   switch (target) {
     case "string":
       return c;
@@ -695,6 +696,54 @@ async function planNode(
         cleanup: [...left.cleanup, ...right.cleanup],
       };
     }
+    case "switch": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+
+      const headers = up.headers;
+      const branches = node.data.branches ?? [];
+      const branchConds = new Map<string, string>();
+      for (const branch of branches) {
+        const branchId = branch.id?.trim() ?? "";
+        if (!branchId) continue;
+        const applicable = rulesApplicableToHeaders(branch.rules ?? [], headers);
+        if (applicable.length === 0) continue;
+        const joiner = (branch.combineAll ?? true) ? " AND " : " OR ";
+        const cond = applicable.map((r) => `(${filterRuleSql(r)})`).join(joiner);
+        if (cond.trim().length === 0) continue;
+        branchConds.set(branchId, cond);
+      }
+
+      const parsed = parseSwitchSourceHandle(viaSourceHandle);
+      if (parsed.kind === "branch") {
+        const branchCond = branchConds.get(parsed.branchId);
+        if (branchCond == null) {
+          return {
+            headers,
+            sql: `SELECT ${selectAll(headers)} FROM (${up.sql}) WHERE FALSE`,
+            cleanup: up.cleanup,
+          };
+        }
+        return {
+          headers,
+          sql: `SELECT ${selectAll(headers)} FROM (${up.sql}) WHERE ${branchCond}`,
+          cleanup: up.cleanup,
+        };
+      }
+
+      const allConds = [...branchConds.values()];
+      if (allConds.length === 0) {
+        return up;
+      }
+      const excludeCond = allConds.map((c) => `(${c})`).join(" OR ");
+      return {
+        headers,
+        sql: `SELECT ${selectAll(headers)} FROM (${up.sql}) WHERE NOT (${excludeCond})`,
+        cleanup: up.cleanup,
+      };
+    }
     case "limitSample": {
       const inEdge = singleIncoming(nodeId, edges);
       if (inEdge == null) return null;
@@ -819,10 +868,17 @@ export async function trySqlRowSourceForNode(
   const db = await getDuckDb();
   const headers = planned.headers;
   const rowCount = undefined;
+  const stringProjection = headers
+    .map((h) => `COALESCE(CAST(${quoteSqlIdent(h)} AS VARCHAR), '') AS ${quoteSqlIdent(h)}`)
+    .join(", ");
+  const plannedSqlBase =
+    headers.length > 0
+      ? `SELECT ${stringProjection} FROM (${planned.sql})`
+      : `SELECT * FROM (${planned.sql})`;
   const plannedSql =
     opts?.limit != null && opts.limit >= 0
-      ? `SELECT ${selectAll(headers)} FROM (${planned.sql}) LIMIT ${Math.floor(opts.limit)}`
-      : planned.sql;
+      ? `SELECT ${selectAll(headers)} FROM (${plannedSqlBase}) LIMIT ${Math.floor(opts.limit)}`
+      : plannedSqlBase;
 
   const cleanup = planned.cleanup;
   return {
