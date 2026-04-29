@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
-import type { RowSource } from "../graph/rowSource";
+import { countRowsInRowSource, type RowSource } from "../graph/rowSource";
 import type {
   AppNode,
   VisualizationNode as VisualizationNodeType,

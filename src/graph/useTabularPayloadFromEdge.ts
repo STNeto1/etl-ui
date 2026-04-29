@@ -26,12 +26,19 @@ export function useTabularPayloadFromEdge(
     }
     let cancelled = false;
     setLoading(true);
-    void getTabularPayloadForEdgeAsync(incoming, nodes, edges).then((p) => {
-      if (!cancelled) {
-        setPayload(p);
-        setLoading(false);
-      }
-    });
+    void getTabularPayloadForEdgeAsync(incoming, nodes, edges)
+      .then((p) => {
+        if (!cancelled) {
+          setPayload(p);
+          setLoading(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPayload(null);
+          setLoading(false);
+        }
+      });
     return () => {
       cancelled = true;
     };

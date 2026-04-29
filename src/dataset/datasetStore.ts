@@ -4,6 +4,7 @@ import { parseCsvText, parseJsonArrayToCsvPayload } from "../httpFetch/runHttpFe
 import { iterateCsvRowsFromFile, iterateNdjsonRowsFromUint8Stream } from "../httpFetch/streamRows";
 import { linesFromUint8Stream } from "./lineBytes";
 import type { DatasetFormat, DatasetId, DatasetMeta, DatasetScanOptions } from "./types";
+import { ensureDuckDbReady } from "../engine/duckdb";
 
 export type { DatasetFormat, DatasetId, DatasetMeta, DatasetScanOptions };
 
@@ -276,6 +277,7 @@ export interface DatasetStore {
 export function createDatasetStore(): DatasetStore {
   return {
     async putCsv(input) {
+      await ensureDuckDbReady();
       if (!(input instanceof File)) {
         const text = await streamToText(input);
         const parsed = parseCsvText(text);
@@ -304,6 +306,7 @@ export function createDatasetStore(): DatasetStore {
     },
 
     async putNdjson(input) {
+      await ensureDuckDbReady();
       if (input instanceof File) {
         const hint = fileByteLength(input);
         const useOpfs = hint >= OPFS_BODY_CHAR_THRESHOLD;
@@ -320,6 +323,7 @@ export function createDatasetStore(): DatasetStore {
     },
 
     async putJson(input, jsonArrayPath) {
+      await ensureDuckDbReady();
       const text = input instanceof File ? await input.text() : await streamToText(input);
       const parsed = parseJsonArrayToCsvPayload(text, jsonArrayPath);
       if ("error" in parsed) {
@@ -343,6 +347,7 @@ export function createDatasetStore(): DatasetStore {
     },
 
     async putNormalizedPayload(payload, format, bytesHint = 0) {
+      await ensureDuckDbReady();
       const hint = Math.max(bytesHint, estimatePayloadBytes(payload));
       const useOpfs = hint >= OPFS_BODY_CHAR_THRESHOLD;
       return ingestNdjsonLines(
@@ -370,6 +375,7 @@ export function createDatasetStore(): DatasetStore {
     },
 
     async *scan(id, opts) {
+      await ensureDuckDbReady();
       const db = await openDb();
       if (db == null) return;
       const tx = db.transaction(STORE, "readonly");
