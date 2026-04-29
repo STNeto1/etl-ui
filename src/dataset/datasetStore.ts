@@ -1,10 +1,12 @@
 import type { CsvPayload } from "../types/flow";
+import { DuckDBDataProtocol } from "@duckdb/duckdb-wasm";
 import { validateIngestRowCount } from "../ingestLimits";
 import { parseCsvText, parseJsonArrayToCsvPayload } from "../httpFetch/runHttpFetch";
 import { iterateCsvRowsFromFile, iterateNdjsonRowsFromUint8Stream } from "../httpFetch/streamRows";
 import { linesFromUint8Stream } from "./lineBytes";
 import type { DatasetFormat, DatasetId, DatasetMeta, DatasetScanOptions } from "./types";
 import { ensureDuckDbReady } from "../engine/duckdb";
+import { getDuckDb } from "../engine/duckdb";
 
 export type { DatasetFormat, DatasetId, DatasetMeta, DatasetScanOptions };
 
@@ -16,6 +18,8 @@ const STORE = "datasets";
 const OPFS_BODY_CHAR_THRESHOLD = 2 * 1024 * 1024;
 
 const SAMPLE_ROWS = 50;
+const INGEST_ORDINAL_COLUMN = "__etl_row_ordinal";
+const SCAN_CHUNK_SIZE = 1_000;
 
 type IdbRow = {
   id: DatasetId;
@@ -52,6 +56,152 @@ function normalizeScanRow(
   for (const h of headers) {
     out[h] = sparse[h] ?? "";
   }
+  return out;
+}
+
+function quoteSqlIdent(v: string): string {
+  return `"${v.replaceAll('"', '""')}"`;
+}
+
+function quoteSqlString(v: string): string {
+  return `'${v.replaceAll("'", "''")}'`;
+}
+
+function scalarToCell(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (value instanceof Date) return value.toISOString();
+  return JSON.stringify(value);
+}
+
+function tableToRows(
+  table: unknown,
+  headers: string[],
+): Array<Record<string, string> & { __ord?: number | string }> {
+  const anyTable = table as {
+    numRows: number;
+    schema: { fields: Array<{ name: string }> };
+    getChildAt: (index: number) => { get: (row: number) => unknown } | null;
+  };
+  const colIndex = new Map<string, number>();
+  anyTable.schema.fields.forEach((f, i) => colIndex.set(f.name, i));
+
+  const out: Array<Record<string, string> & { __ord?: number | string }> = [];
+  for (let rowIndex = 0; rowIndex < anyTable.numRows; rowIndex++) {
+    const row: Record<string, string> & { __ord?: number | string } = {};
+    for (const h of headers) {
+      const idx = colIndex.get(h);
+      const child = idx == null ? null : anyTable.getChildAt(idx);
+      row[h] = child == null ? "" : scalarToCell(child.get(rowIndex));
+    }
+    const ordIdx = colIndex.get(INGEST_ORDINAL_COLUMN);
+    const ordChild = ordIdx == null ? null : anyTable.getChildAt(ordIdx);
+    if (ordChild != null) {
+      const ord = ordChild.get(rowIndex);
+      if (typeof ord === "number" || typeof ord === "string") {
+        row.__ord = ord;
+      } else if (typeof ord === "bigint") {
+        row.__ord = ord.toString();
+      }
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+async function queryScanRows(
+  id: DatasetId,
+  row: IdbRow,
+  headers: string[],
+  offset: number,
+  limit?: number,
+): Promise<Record<string, string>[]> {
+  const db = await getDuckDb();
+  const conn = await db.connect();
+  const fileName = `scan-${id}.ndjson`;
+  const selectCols = headers.map((h) => quoteSqlIdent(h)).join(", ");
+  const baseSql =
+    `SELECT ${selectCols}, ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ` +
+    `FROM read_ndjson_auto(${quoteSqlString(fileName)}) ` +
+    `ORDER BY ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ASC`;
+
+  try {
+    if (row.opfsRelPath != null) {
+      const opfsFile = await readOpfsNdjsonFile(id);
+      if (opfsFile == null) return [];
+      await db.registerFileHandle(fileName, opfsFile, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+    } else {
+      await db.registerFileText(fileName, row.bodyInline ?? "");
+    }
+
+    const allRows: Record<string, string>[] = [];
+    let scanned = 0;
+    let remaining = limit;
+    for (;;) {
+      const batchLimit = remaining == null ? SCAN_CHUNK_SIZE : Math.min(SCAN_CHUNK_SIZE, remaining);
+      if (batchLimit <= 0) break;
+      const sql = `${baseSql} LIMIT ${batchLimit} OFFSET ${offset + scanned}`;
+      const table = await conn.query(sql);
+      const rows = tableToRows(table, headers);
+      if (rows.length === 0) break;
+      for (const r of rows) {
+        allRows.push(normalizeScanRow(headers, r));
+      }
+      scanned += rows.length;
+      if (remaining != null) {
+        remaining -= rows.length;
+        if (remaining <= 0) break;
+      }
+      if (rows.length < batchLimit) break;
+    }
+    return allRows;
+  } finally {
+    await conn.close();
+    await db.dropFile(fileName).catch(() => undefined);
+  }
+}
+
+async function scanRowsFromNdjsonFallback(
+  id: DatasetId,
+  row: IdbRow,
+  headers: string[],
+  offset: number,
+  limit?: number,
+): Promise<Record<string, string>[]> {
+  const out: Record<string, string>[] = [];
+  let emitted = 0;
+  let skipped = 0;
+  async function consume(stream: ReadableStream<Uint8Array>): Promise<void> {
+    for await (const line of linesFromUint8Stream(stream)) {
+      if (!line.trim()) continue;
+      if (skipped < offset) {
+        skipped++;
+        continue;
+      }
+      if (limit != null && emitted >= limit) break;
+      try {
+        const obj = JSON.parse(line) as Record<string, string>;
+        out.push(normalizeScanRow(headers, obj));
+      } catch {
+        // skip malformed row
+      }
+      emitted++;
+    }
+  }
+
+  if (row.opfsRelPath != null) {
+    const file = await readOpfsNdjsonFile(id);
+    if (file != null) {
+      await consume(file.stream());
+      return out;
+    }
+  }
+  const body = row.bodyInline ?? "";
+  if (!body) return out;
+  await consume(new Blob([body]).stream() as unknown as ReadableStream<Uint8Array>);
   return out;
 }
 
@@ -170,16 +320,22 @@ async function ingestNdjsonLines(
   }
 
   try {
+    let ordinal = 0;
     for await (const row of rows) {
       if (format === "ndjson") {
         mergeHeaderOrder(headersAcc, row);
       }
-      const lineObj = format === "ndjson" ? row : normalizeScanRow(headersAcc, row);
+      const normalized = normalizeScanRow(headersAcc, row);
+      const lineObj: Record<string, string | number> = {
+        ...normalized,
+        [INGEST_ORDINAL_COLUMN]: ordinal,
+      };
       const line = `${JSON.stringify(lineObj)}\n`;
       const chunk = encoder.encode(line);
       writtenBytes += chunk.byteLength;
-      takeSampleRow(sample, normalizeScanRow(headersAcc, row));
+      takeSampleRow(sample, normalized);
       rowCount++;
+      ordinal++;
       const chk = validateIngestRowCount(rowCount);
       if (chk.ok === false) {
         throw new Error(chk.error);
@@ -387,49 +543,14 @@ export function createDatasetStore(): DatasetStore {
       const headers = row.meta.headers ?? [];
       const offset = Math.max(0, opts?.offset ?? 0);
       const limit = opts?.limit;
-      let emitted = 0;
-      let skipped = 0;
-
-      if (row.opfsRelPath != null) {
-        const file = await readOpfsNdjsonFile(id);
-        if (file != null) {
-          for await (const line of linesFromUint8Stream(file.stream())) {
-            if (!line.trim()) continue;
-            if (skipped < offset) {
-              skipped++;
-              continue;
-            }
-            if (limit != null && emitted >= limit) break;
-            try {
-              const obj = JSON.parse(line) as Record<string, string>;
-              yield normalizeScanRow(headers, obj);
-            } catch {
-              // skip
-            }
-            emitted++;
-          }
-          return;
-        }
+      let rows: Record<string, string>[];
+      try {
+        rows = await queryScanRows(id, row, headers, offset, limit);
+      } catch {
+        rows = await scanRowsFromNdjsonFallback(id, row, headers, offset, limit);
       }
-
-      const body = row.bodyInline ?? "";
-      if (body.length === 0) return;
-      for await (const line of linesFromUint8Stream(
-        new Blob([body]).stream() as unknown as ReadableStream<Uint8Array>,
-      )) {
-        if (!line.trim()) continue;
-        if (skipped < offset) {
-          skipped++;
-          continue;
-        }
-        if (limit != null && emitted >= limit) break;
-        try {
-          const obj = JSON.parse(line) as Record<string, string>;
-          yield normalizeScanRow(headers, obj);
-        } catch {
-          // skip
-        }
-        emitted++;
+      for (const out of rows) {
+        yield out;
       }
     },
 
