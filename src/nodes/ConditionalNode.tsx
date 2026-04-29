@@ -1,7 +1,8 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { tryUpstreamHeadersForIncomingEdge } from "../graph/upstreamHeaders";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import type {
   AppNode,
@@ -17,12 +18,14 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
   const rules = useMemo(() => data.rules ?? [], [data.rules]);
   const combineAll = data.combineAll ?? true;
 
-  const incoming = useMemo(() => edges.filter((e) => e.target === id), [edges, id]);
+  const incomingEdge = useMemo(() => edges.find((e) => e.target === id) ?? null, [edges, id]);
+  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => {
-    if (incoming.length === 0) return [];
-    const payload = getTabularOutputForEdge(incoming[0], nodes, edges);
+    if (incomingEdge == null) return [];
+    const fast = tryUpstreamHeadersForIncomingEdge(incomingEdge, nodes, edges);
+    if (fast != null && fast.length > 0) return fast;
     return payload?.headers ?? [];
-  }, [edges, incoming, nodes]);
+  }, [incomingEdge, nodes, edges, payload]);
 
   const patchData = useCallback(
     (patch: Partial<ConditionalNodeData>) => {

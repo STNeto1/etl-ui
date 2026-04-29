@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
+import { resetAppDatasetStoreForTests } from "../dataset/appDatasetStore";
+import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { defaultDataSourceData } from "../types/flow";
 import {
   collectRowSourceToPayload,
@@ -7,6 +10,23 @@ import {
 } from "./tabularOutput";
 import type { AppNode } from "../types/flow";
 import type { Edge } from "@xyflow/react";
+
+const DATASET_DB = "etl-ui-datasets";
+
+beforeEach(async () => {
+  resetAppDatasetStoreForTests();
+  Object.defineProperty(globalThis, "indexedDB", {
+    value: fakeIndexedDB,
+    configurable: true,
+    writable: true,
+  });
+  await new Promise<void>((resolve, reject) => {
+    const r = indexedDB.deleteDatabase(DATASET_DB);
+    r.onsuccess = () => resolve();
+    r.onerror = () => reject(r.error ?? new Error("delete dataset db"));
+    r.onblocked = () => resolve();
+  });
+});
 
 function dataSourceNode(
   id: string,
@@ -50,5 +70,31 @@ describe("getTabularOutputAsync", () => {
       rows.push(r["x"] ?? "");
     }
     expect(rows).toEqual(["y"]);
+  });
+
+  it("resolves dataSource from dataset store when csv is null", async () => {
+    const store = getAppDatasetStore();
+    const meta = await store.putNormalizedPayload({ headers: ["u"], rows: [{ u: "v" }] }, "csv");
+    const nodes: AppNode[] = [
+      {
+        id: "ds1",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: meta.id,
+          format: "csv",
+          headers: meta.headers,
+          rowCount: meta.rowCount,
+          sample: meta.sample,
+        },
+      },
+    ];
+    const rs = await getTabularOutputAsync("ds1", nodes, []);
+    expect(rs).not.toBeNull();
+    const collected = await collectRowSourceToPayload(rs!);
+    expect(collected.headers).toEqual(["u"]);
+    expect(collected.rows).toEqual([{ u: "v" }]);
   });
 });

@@ -11,10 +11,11 @@ import Papa from "papaparse";
 import { Handle, Position, useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
 import {
   fileTooLargeMessage,
-  getMaxCsvNdjsonBytes,
+  getHardCsvNdjsonBytes,
   maxBytesForIngestHint,
   type IngestFormatHint,
   validateIngestPayload,
+  warnIfApproachingIngestLimit,
 } from "../ingestLimits";
 import { buildCurlCommand } from "../httpFetch/buildCurl";
 import { ingestLocalFileText } from "../httpFetch/ingestLocalDataFile";
@@ -22,10 +23,9 @@ import {
   buildRequestUrl,
   fetchToCsvPayload,
   isJsonTabularShapeError,
-  parseCsvFromFile,
   truncateForParseErrorPreview,
 } from "../httpFetch/runHttpFetch";
-import { createDatasetStore } from "../dataset/datasetStore";
+import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import type { DatasetFormat } from "../dataset/types";
 import type {
   CsvPayload,
@@ -146,10 +146,14 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
   /** Last file read from disk (for re-parsing .json when JSON array path changes). */
   const lastLocalFileRef = useRef<{ name: string; text: string } | null>(null);
 
-  const columnTypes = useMemo(
-    () => (data.csv != null ? inferColumnTypes(data.csv) : []),
-    [data.csv],
-  );
+  const columnTypes = useMemo(() => {
+    const tabular =
+      data.csv ??
+      (data.sample.length > 0 && data.headers.length > 0
+        ? { headers: data.headers, rows: data.sample }
+        : null);
+    return tabular != null ? inferColumnTypes(tabular) : [];
+  }, [data.csv, data.sample, data.headers]);
 
   const patchData = useCallback(
     (patch: Partial<DataSourceData>) => {
@@ -180,11 +184,11 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
         return;
       }
       try {
-        const store = createDatasetStore();
+        const store = getAppDatasetStore();
         const meta = await store.putNormalizedPayload(payload, format);
         setParsePreviewBody(null);
         patchData({
-          csv: payload,
+          csv: null,
           datasetId: meta.id,
           format: meta.format,
           headers: meta.headers,
@@ -269,33 +273,98 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
         setBusy(false);
         return;
       }
+      warnIfApproachingIngestLimit(file.size, hint);
       try {
+        const store = getAppDatasetStore();
         if (lower.endsWith(".csv")) {
           lastLocalFileRef.current = null;
-          const result = await parseCsvFromFile(file);
-          if ("error" in result) {
+          try {
+            const meta = await store.putCsv(file);
+            setParsePreviewBody(null);
+            patchData({
+              csv: null,
+              datasetId: meta.id,
+              format: meta.format,
+              headers: meta.headers,
+              rowCount: meta.rowCount,
+              sample: meta.sample,
+              source: "file",
+              fileName: file.name,
+              error: null,
+              loadedAt: Date.now(),
+            });
+          } catch (err) {
             stripOutgoingSourceEdges(setEdges, id);
             setParsePreviewBody(null);
             patchData({
               ...INGEST_FAILURE_RESET,
-              error: result.error,
+              error: err instanceof Error ? err.message : String(err),
             });
-            return;
           }
-          await applySuccess(result.csv, "file", file.name, "csv");
+          return;
+        }
+
+        if (lower.endsWith(".ndjson")) {
+          lastLocalFileRef.current = null;
+          try {
+            const meta = await store.putNdjson(file);
+            setParsePreviewBody(null);
+            patchData({
+              csv: null,
+              datasetId: meta.id,
+              format: meta.format,
+              headers: meta.headers,
+              rowCount: meta.rowCount,
+              sample: meta.sample,
+              source: "file",
+              fileName: file.name,
+              error: null,
+              loadedAt: Date.now(),
+            });
+          } catch (err) {
+            stripOutgoingSourceEdges(setEdges, id);
+            setParsePreviewBody(null);
+            patchData({
+              ...INGEST_FAILURE_RESET,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
           return;
         }
 
         const text = await file.text();
         lastLocalFileRef.current = { name: file.name, text };
+        if (lower.endsWith(".json")) {
+          try {
+            const meta = await store.putJson(file, httpJsonArrayPath);
+            setParsePreviewBody(null);
+            patchData({
+              csv: null,
+              datasetId: meta.id,
+              format: meta.format,
+              headers: meta.headers,
+              rowCount: meta.rowCount,
+              sample: meta.sample,
+              source: "file",
+              fileName: file.name,
+              error: null,
+              loadedAt: Date.now(),
+            });
+          } catch (err) {
+            stripOutgoingSourceEdges(setEdges, id);
+            setParsePreviewBody(truncateForParseErrorPreview(text));
+            patchData({
+              ...INGEST_FAILURE_RESET,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          return;
+        }
+
         const result = ingestLocalFileText(file.name, text, httpJsonArrayPath);
         if ("error" in result) {
           stripOutgoingSourceEdges(setEdges, id);
-          const showBody =
-            lower.endsWith(".json") ||
-            lower.endsWith(".ndjson") ||
-            isJsonTabularShapeError(result.error);
-          setParsePreviewBody(showBody ? truncateForParseErrorPreview(text) : null);
+          setParsePreviewBody(truncateForParseErrorPreview(text));
           patchData({
             ...INGEST_FAILURE_RESET,
             error: result.error,
@@ -333,7 +402,7 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
       }
       const text = await res.text();
       const bodyBytes = new TextEncoder().encode(text).length;
-      const maxTemplateBytes = getMaxCsvNdjsonBytes();
+      const maxTemplateBytes = getHardCsvNdjsonBytes();
       if (bodyBytes > maxTemplateBytes) {
         patchData({
           ...INGEST_FAILURE_RESET,
@@ -413,11 +482,11 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
         fileLabel = "HTTP";
       }
       try {
-        const store = createDatasetStore();
+        const store = getAppDatasetStore();
         const fmt = inferHttpDatasetFormat(built.url, result.contentType);
         const meta = await store.putNormalizedPayload(result.csv, fmt);
         patchData({
-          csv: result.csv,
+          csv: null,
           datasetId: meta.id,
           format: meta.format,
           headers: meta.headers,
@@ -561,8 +630,10 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
     });
   }, [httpBody, httpHeaders, httpMethod, httpParams, httpUrl, patchData]);
 
-  const rowCount = data.csv?.rows.length ?? 0;
-  const status = data.error != null ? "error" : data.csv != null ? "ready" : "empty";
+  const rowCount = data.rowCount > 0 ? data.rowCount : (data.csv?.rows.length ?? 0);
+  const status =
+    data.error != null ? "error" : data.datasetId != null || data.csv != null ? "ready" : "empty";
+  const sourceHasOutputRef = data.error == null && (data.datasetId != null || data.csv != null);
 
   return (
     <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
@@ -633,6 +704,15 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
             className="rounded border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs font-medium text-neutral-800 hover:bg-neutral-100 disabled:opacity-50"
           >
             Choose CSV or JSON file…
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onPickFile}
+            title="Same as Choose file — pick a new file to replace the stored dataset"
+            className="rounded border border-dashed border-neutral-400 bg-white px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+          >
+            Replace dataset…
           </button>
           <button
             type="button"
@@ -943,10 +1023,8 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
         hidden={tab !== "types"}
         className="px-1 pt-2"
       >
-        {data.csv == null ? (
-          <p className="text-xs text-neutral-500">
-            Load a CSV on the Load tab to see column types.
-          </p>
+        {columnTypes.length === 0 ? (
+          <p className="text-xs text-neutral-500">Load data on the Load tab to see column types.</p>
         ) : (
           <div className="max-h-[200px] overflow-y-auto rounded border border-neutral-200">
             <table className="w-full border-collapse text-left text-[11px]">
@@ -998,11 +1076,8 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
       <Handle
         type="source"
         position={Position.Bottom}
-        isConnectable={data.csv != null && data.error == null}
-        className={[
-          "bg-neutral-400!",
-          data.csv == null || data.error != null ? "opacity-35" : "",
-        ].join(" ")}
+        isConnectable={sourceHasOutputRef}
+        className={["bg-neutral-400!", sourceHasOutputRef ? "" : "opacity-35"].join(" ")}
       />
     </div>
   );

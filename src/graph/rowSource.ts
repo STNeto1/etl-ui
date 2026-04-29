@@ -26,3 +26,12 @@ export async function collectRowSourceToPayload(source: RowSource): Promise<CsvP
   }
   return { headers: source.headers, rows };
 }
+
+/** Count rows by streaming (O(1) heap; O(n) time). Each `rows()` iteration is independent. */
+export async function countRowsInRowSource(source: RowSource): Promise<number> {
+  let n = 0;
+  for await (const _ of source.rows()) {
+    n++;
+  }
+  return n;
+}

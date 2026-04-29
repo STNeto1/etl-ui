@@ -3,8 +3,16 @@ import { runAggregate } from "../aggregate/runAggregate";
 import { applyComputeRow } from "../computeColumn/template";
 import { applyCastToPayload } from "../cast/applyCast";
 import { applyFillReplaceToPayload } from "../fillReplace/applyFillReplace";
-import type { AppNode, CsvPayload, HttpColumnRename } from "../types/flow";
-import { collectRowSourceToPayload, rowSourceFromPayload, type RowSource } from "./rowSource";
+import type { AppNode, CsvPayload, DataSourceNode } from "../types/flow";
+import { applyHttpColumnRenames } from "./tabularCsvRename";
+import { tryStreamingRowSourceForNode } from "./tabularStreamingRowSource";
+import { getAppDatasetStore } from "../dataset/appDatasetStore";
+import {
+  collectRowSourceToPayload,
+  rowSourceFromPayload,
+  countRowsInRowSource,
+  type RowSource,
+} from "./rowSource";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
 import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
@@ -114,14 +122,63 @@ export function getTabularOutputForEdge(
   );
 }
 
-/** Async view of tabular output as a row iterator (currently materialized from the sync resolver). */
+/**
+ * Clone nodes and attach in-memory `csv` for each data source that only has `datasetId`
+ * (used for async resolution / tests; does not mutate React Flow state).
+ */
+export async function materializeDataSourcesForResolve(nodes: AppNode[]): Promise<AppNode[]> {
+  const store = getAppDatasetStore();
+  const out: AppNode[] = [];
+  for (const n of nodes) {
+    if (n.type === "dataSource") {
+      const ds = n as DataSourceNode;
+      if (ds.data.csv != null) {
+        out.push(ds);
+        continue;
+      }
+      if (ds.data.datasetId == null) {
+        out.push(ds);
+        continue;
+      }
+      const rows: Record<string, string>[] = [];
+      for await (const row of store.scan(ds.data.datasetId)) {
+        rows.push(row);
+      }
+      const headers =
+        ds.data.headers.length > 0 ? ds.data.headers : rows[0] != null ? Object.keys(rows[0]!) : [];
+      const aligned = rows.map((r) => {
+        const o: Record<string, string> = {};
+        for (const h of headers) {
+          o[h] = r[h] ?? "";
+        }
+        return o;
+      });
+      const next: DataSourceNode = {
+        ...ds,
+        data: { ...ds.data, csv: { headers, rows: aligned } },
+      };
+      out.push(next);
+    } else {
+      out.push(n);
+    }
+  }
+  return out;
+}
+
+/** Async view of tabular output as a row iterator (loads dataset-backed sources from the store). */
 export async function getTabularOutputAsync(
   nodeId: string,
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string> = new Set(),
 ): Promise<RowSource | null> {
-  const payload = getTabularOutputWithHandle(nodeId, null, nodes, edges, visited);
+  const streamed = await tryStreamingRowSourceForNode(nodeId, null, nodes, edges);
+  if (streamed != null) {
+    return streamed;
+  }
+
+  const withCsv = await materializeDataSourcesForResolve(nodes);
+  const payload = getTabularOutputWithHandle(nodeId, null, withCsv, edges, visited);
   return payload != null ? rowSourceFromPayload(payload) : null;
 }
 
@@ -131,38 +188,48 @@ export async function getTabularOutputForEdgeAsync(
   edges: Edge[],
   visited: Set<string> = new Set(),
 ): Promise<RowSource | null> {
-  const payload = getTabularOutputWithHandle(
+  const streamed = await tryStreamingRowSourceForNode(
     incomingEdge.source,
     incomingEdge.sourceHandle ?? null,
     nodes,
+    edges,
+  );
+  if (streamed != null) {
+    return streamed;
+  }
+
+  const withCsv = await materializeDataSourcesForResolve(nodes);
+  const payload = getTabularOutputWithHandle(
+    incomingEdge.source,
+    incomingEdge.sourceHandle ?? null,
+    withCsv,
     edges,
     visited,
   );
   return payload != null ? rowSourceFromPayload(payload) : null;
 }
 
-export { collectRowSourceToPayload, rowSourceFromPayload, type RowSource };
-
-function applyHttpColumnRenames(csv: CsvPayload, renames: HttpColumnRename[]): CsvPayload {
-  const list = renames.filter((r) => r.fromColumn.trim() !== "" && r.toColumn.trim() !== "");
-  if (list.length === 0) return csv;
-  let headers = [...csv.headers];
-  let rows = csv.rows.map((row) => ({ ...row }));
-  for (const { fromColumn, toColumn } of list) {
-    const from = fromColumn.trim();
-    const to = toColumn.trim();
-    if (!headers.includes(from) || from === to) continue;
-    if (headers.includes(to)) continue;
-    headers = headers.map((h) => (h === from ? to : h));
-    rows = rows.map((row) => {
-      const next = { ...row };
-      next[to] = row[from] ?? "";
-      delete next[from];
-      return next;
-    });
-  }
-  return { headers, rows };
+/** Full tabular payload for an edge (materializes dataset-backed sources). */
+export async function getTabularPayloadForEdgeAsync(
+  incomingEdge: Edge,
+  nodes: AppNode[],
+  edges: Edge[],
+  visited: Set<string> = new Set(),
+): Promise<CsvPayload | null> {
+  const withCsv = await materializeDataSourcesForResolve(nodes);
+  return getTabularOutputWithHandle(
+    incomingEdge.source,
+    incomingEdge.sourceHandle ?? null,
+    withCsv,
+    edges,
+    visited,
+  );
 }
+
+/** Alias: pull-based row source for an incoming edge (materializes upstream chain). */
+export const getRowSourceForEdgeAsync = getTabularOutputForEdgeAsync;
+
+export { collectRowSourceToPayload, rowSourceFromPayload, type RowSource, countRowsInRowSource };
 
 function resolveNodeOutput(
   nodeId: string,

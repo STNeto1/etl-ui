@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState, type ChangeEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge, getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
+import { countRowsInRowSource, getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
 import type {
   AppNode,
   VisualizationNode as VisualizationNodeType,
   VisualizationNodeData,
 } from "../types/flow";
+import { visualizationUpstreamStaleKey } from "../graph/tabularStaleKey";
 
 const DEFAULT_PREVIEW_ROWS = 5;
 
@@ -29,6 +30,11 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const requestedRows = data.previewRows ?? DEFAULT_PREVIEW_ROWS;
   const [resolution, setResolution] = useState<VizResolution>({ kind: "loading" });
 
+  const upstreamStaleKey = useMemo(
+    () => visualizationUpstreamStaleKey(id, edges, nodes),
+    [edges, id, nodes],
+  );
+
   const patchData = useCallback(
     (patch: Partial<VisualizationNodeData>) => {
       setNodes((ns) =>
@@ -40,6 +46,8 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     [id, setNodes],
   );
 
+  // upstreamStaleKey encodes inbound edge + semantic upstream subgraph; avoids canceling slow
+  // materialize on every React Flow nodes[] identity churn during pan/zoom.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -48,6 +56,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         if (!cancelled) setResolution({ kind: "no-edge" });
         return;
       }
+      if (!cancelled) setResolution({ kind: "loading" });
       const edge = incoming[0]!;
       const parentId = edge.source;
       const parent = nodes.find((n) => n.id === parentId);
@@ -59,20 +68,40 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
       }
       const cap = Math.max(1, requestedRows);
       const displayRows: Record<string, string>[] = [];
-      for await (const row of rs.rows()) {
-        displayRows.push(row);
-        if (displayRows.length >= cap) break;
+      let totalRowsResolved = rs.rowCount;
+
+      if (totalRowsResolved !== undefined) {
+        for await (const row of rs.rows()) {
+          displayRows.push(row);
+          if (displayRows.length >= cap) break;
+        }
+      } else {
+        let n = 0;
+        for await (const row of rs.rows()) {
+          n++;
+          if (displayRows.length < cap) {
+            displayRows.push(row);
+          }
+        }
+        totalRowsResolved = n;
       }
+      const totalRows = totalRowsResolved;
+
       const viaFilter = parent?.type === "filter";
       let rowsBeforeFilter: number | null = null;
       if (viaFilter && parent != null) {
         const intoFilter = edges.filter((e) => e.target === parent.id)[0];
         if (intoFilter != null) {
-          const before = getTabularOutputForEdge(intoFilter, nodes, edges);
-          rowsBeforeFilter = before?.rows.length ?? null;
+          const beforeRs = await getTabularOutputForEdgeAsync(intoFilter, nodes, edges);
+          if (beforeRs != null) {
+            rowsBeforeFilter =
+              beforeRs.rowCount !== undefined
+                ? beforeRs.rowCount
+                : await countRowsInRowSource(beforeRs);
+          }
         }
       }
-      const totalRows = rs.rowCount ?? displayRows.length;
+
       setResolution({
         kind: "ready",
         headers: rs.headers,
@@ -85,7 +114,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     return () => {
       cancelled = true;
     };
-  }, [edges, id, nodes, requestedRows]);
+  }, [upstreamStaleKey, requestedRows]);
 
   const viaFilter = resolution.kind === "ready" ? resolution.viaFilter : false;
   const rowsBeforeFilter = resolution.kind === "ready" ? resolution.rowsBeforeFilter : null;

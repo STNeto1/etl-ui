@@ -5,9 +5,19 @@ function parseEnvPositiveInt(raw: string | undefined, fallback: number): number 
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/** Max raw file bytes for CSV or NDJSON (default 2 GiB; datasets stored out-of-graph). */
+/** Soft warning threshold for CSV/NDJSON size (default 200 MiB). */
+export function getWarnCsvNdjsonBytes(): number {
+  return parseEnvPositiveInt(import.meta.env.VITE_WARN_CSV_NDJSON_BYTES, 200 * 1024 * 1024);
+}
+
+/** Hard reject for CSV/NDJSON (default 2 GiB). */
+export function getHardCsvNdjsonBytes(): number {
+  return parseEnvPositiveInt(import.meta.env.VITE_HARD_CSV_NDJSON_BYTES, 2 * 1024 * 1024 * 1024);
+}
+
+/** @deprecated Prefer getHardCsvNdjsonBytes / getWarnCsvNdjsonBytes */
 export function getMaxCsvNdjsonBytes(): number {
-  return parseEnvPositiveInt(import.meta.env.VITE_MAX_CSV_NDJSON_BYTES, 2 * 1024 * 1024 * 1024);
+  return getHardCsvNdjsonBytes();
 }
 
 /** Max raw file bytes for JSON documents (default 100 MiB). */
@@ -24,8 +34,19 @@ export type IngestFormatHint = "csv" | "json" | "ndjson" | "unknown";
 
 export function maxBytesForIngestHint(hint: IngestFormatHint): number {
   if (hint === "json") return getMaxJsonBytes();
-  if (hint === "csv" || hint === "ndjson") return getMaxCsvNdjsonBytes();
-  return getMaxCsvNdjsonBytes();
+  if (hint === "csv" || hint === "ndjson") return getHardCsvNdjsonBytes();
+  return getHardCsvNdjsonBytes();
+}
+
+/** Non-blocking UI hint when file size crosses the warn threshold (still under hard cap). */
+export function warnIfApproachingIngestLimit(byteLength: number, format: IngestFormatHint): void {
+  if (format === "json") return;
+  const warnAt = getWarnCsvNdjsonBytes();
+  if (byteLength >= warnAt && byteLength < getHardCsvNdjsonBytes()) {
+    console.warn(
+      `[etl-ui] Large file (${(byteLength / (1024 * 1024)).toFixed(0)} MiB): previews and transforms may be slow until Phase 3. Hard limit is ${(getHardCsvNdjsonBytes() / (1024 * 1024)).toFixed(0)} MiB.`,
+    );
+  }
 }
 
 /**

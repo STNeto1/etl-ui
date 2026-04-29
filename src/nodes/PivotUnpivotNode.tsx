@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import type {
   AppNode,
   PivotUnpivotMode,
@@ -13,11 +13,8 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
-  const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const payload = useMemo(
-    () => (incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null),
-    [edges, incoming, nodes],
-  );
+  const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
+  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => payload?.headers ?? [], [payload]);
 
   const mode = data.pivotUnpivotMode ?? "unpivot";
@@ -108,7 +105,7 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
           </select>
         </div>
 
-        {incoming.length === 0 || headers.length === 0 ? (
+        {incomingEdge == null || headers.length === 0 ? (
           <p className="text-[11px] text-neutral-500">
             Connect upstream data to configure columns.
           </p>
@@ -215,7 +212,10 @@ export function PivotUnpivotNode({ id, data }: NodeProps<PivotUnpivotNodeType>) 
         )}
       </div>
 
-      {mode === "unpivot" && idColumns.length === 0 && incoming.length > 0 && headers.length > 0 ? (
+      {mode === "unpivot" &&
+      idColumns.length === 0 &&
+      incomingEdge != null &&
+      headers.length > 0 ? (
         <p className="mt-1 px-1 text-[10px] text-amber-600">
           Select at least one id column, or upstream passes through unchanged.
         </p>

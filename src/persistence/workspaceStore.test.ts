@@ -111,7 +111,15 @@ describe("workspaceStore", () => {
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
 
     expect(loaded).not.toBeNull();
-    expect(loaded?.nodes).toEqual(nodes);
+    const loadedDs = loaded!.nodes.find((n) => n.id === "data-source");
+    expect(loadedDs?.type).toBe("dataSource");
+    if (loadedDs?.type === "dataSource") {
+      expect(loadedDs.data.csv).toBeNull();
+      expect(loadedDs.data.datasetId).toBe(meta.id);
+      expect(loadedDs.data.headers).toEqual(payload.headers);
+      expect(loadedDs.data.rowCount).toBe(1);
+    }
+    expect(loaded!.nodes.find((n) => n.id === "viz-1")).toEqual(nodes[1]);
     expect(loaded?.edges).toEqual([
       expect.objectContaining({
         id: "e1",

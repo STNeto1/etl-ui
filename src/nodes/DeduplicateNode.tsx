@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import type {
   AppNode,
   DeduplicateNode as DeduplicateNodeType,
@@ -13,11 +13,8 @@ export function DeduplicateNode({ id, data }: NodeProps<DeduplicateNodeType>) {
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
-  const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const payload = useMemo(
-    () => (incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null),
-    [edges, incoming, nodes],
-  );
+  const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
+  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => payload?.headers ?? [], [payload]);
   const dedupeMode = data.dedupeMode ?? "fullRow";
   const dedupeKeys = useMemo(() => data.dedupeKeys ?? [], [data.dedupeKeys]);
@@ -82,7 +79,7 @@ export function DeduplicateNode({ id, data }: NodeProps<DeduplicateNodeType>) {
         {dedupeMode === "keyColumns" && (
           <div className="mt-2">
             <div className="text-[11px] font-medium text-neutral-700">Key columns</div>
-            {incoming.length === 0 || headers.length === 0 ? (
+            {incomingEdge == null || headers.length === 0 ? (
               <p className="mt-1 text-[10px] text-neutral-500">
                 Connect upstream data to choose key columns.
               </p>

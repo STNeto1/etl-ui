@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import type {
   AppNode,
   UnnestArrayNode as UnnestArrayNodeType,
@@ -12,11 +12,8 @@ export function UnnestArrayNode({ id, data }: NodeProps<UnnestArrayNodeType>) {
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
-  const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const payload = useMemo(
-    () => (incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null),
-    [edges, incoming, nodes],
-  );
+  const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
+  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => payload?.headers ?? [], [payload]);
   const column = data.column ?? "";
   const primitiveOutputColumn = data.primitiveOutputColumn ?? "value";
@@ -50,7 +47,7 @@ export function UnnestArrayNode({ id, data }: NodeProps<UnnestArrayNodeType>) {
       >
         <div>
           <label className="block text-[11px] font-medium text-neutral-700">Array column</label>
-          {incoming.length === 0 || headers.length === 0 ? (
+          {incomingEdge == null || headers.length === 0 ? (
             <p className="mt-1 text-[10px] text-neutral-500">
               Connect upstream data to pick a column.
             </p>

@@ -10,6 +10,8 @@ export type DatasetMeta = {
   bytes: number;
   format: DatasetFormat;
   createdAt: number;
+  /** OPFS path to raw upload when captured (Phase 3 re-ingest). */
+  rawOpfsRelPath?: string | null;
 };
 
 export type DatasetScanOptions = {

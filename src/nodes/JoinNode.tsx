@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import type {
   AppNode,
@@ -24,14 +24,8 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
     [edges, id],
   );
 
-  const leftPayload = useMemo(
-    () => (leftEdge != null ? getTabularOutputForEdge(leftEdge, nodes, edges) : null),
-    [leftEdge, nodes, edges],
-  );
-  const rightPayload = useMemo(
-    () => (rightEdge != null ? getTabularOutputForEdge(rightEdge, nodes, edges) : null),
-    [rightEdge, nodes, edges],
-  );
+  const { payload: leftPayload } = useTabularPayloadFromEdge(leftEdge, nodes, edges);
+  const { payload: rightPayload } = useTabularPayloadFromEdge(rightEdge, nodes, edges);
 
   const leftHeaders = useMemo(() => leftPayload?.headers ?? [], [leftPayload]);
   const rightHeaders = useMemo(() => rightPayload?.headers ?? [], [rightPayload]);

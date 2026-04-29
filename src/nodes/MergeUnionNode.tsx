@@ -1,8 +1,9 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { getTabularPayloadForEdgeAsync } from "../graph/tabularOutput";
 import type {
   AppNode,
+  CsvPayload,
   MergeUnionNode as MergeUnionNodeType,
   MergeUnionNodeData,
 } from "../types/flow";
@@ -14,14 +15,25 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
 
   const incoming = useMemo(() => edges.filter((e) => e.target === id), [edges, id]);
 
-  const upstreamPayloads = useMemo(
-    () =>
-      incoming.map((edge) => ({
-        sourceId: edge.source,
-        payload: getTabularOutputForEdge(edge, nodes, edges),
-      })),
-    [edges, incoming, nodes],
-  );
+  const [upstreamPayloads, setUpstreamPayloads] = useState<
+    { sourceId: string; payload: CsvPayload | null }[]
+  >([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const pairs = await Promise.all(
+        incoming.map(async (edge) => ({
+          sourceId: edge.source,
+          payload: await getTabularPayloadForEdgeAsync(edge, nodes, edges),
+        })),
+      );
+      if (!cancelled) setUpstreamPayloads(pairs);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [incoming, nodes, edges]);
 
   const availableHeaders = useMemo(() => {
     const seen = new Set<string>();

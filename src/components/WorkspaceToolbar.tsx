@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createDatasetStore } from "../dataset/datasetStore";
+import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import type { DatasetMeta } from "../dataset/types";
+import { listDatasetWorkspaceReferences } from "../dataset/workspaceDatasetRefs";
 import type { WorkspaceIndex } from "../persistence/workspaceStore";
 import type { WorkspaceTemplateId, WorkspaceTemplateMeta } from "../workspace/workspaceTemplates";
 
@@ -54,18 +55,22 @@ export function WorkspaceToolbar({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [datasetsOpen, setDatasetsOpen] = useState(false);
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
+  const [datasetRefs, setDatasetRefs] = useState<Map<string, string[]>>(new Map());
 
   useEffect(() => {
     if (!datasetsOpen) return;
     void (async () => {
-      const store = createDatasetStore();
-      setDatasets(await store.list());
+      const store = getAppDatasetStore();
+      const [list, refs] = await Promise.all([store.list(), listDatasetWorkspaceReferences()]);
+      setDatasets(list);
+      setDatasetRefs(refs);
     })();
   }, [datasetsOpen]);
 
   const refreshDatasets = async () => {
-    const store = createDatasetStore();
+    const store = getAppDatasetStore();
     setDatasets(await store.list());
+    setDatasetRefs(await listDatasetWorkspaceReferences());
   };
 
   return (
@@ -104,7 +109,7 @@ export function WorkspaceToolbar({
             type="button"
             className={btnClass}
             onClick={() => setDatasetsOpen((o) => !o)}
-            title="Indexed datasets (replace via Data source node file picker)"
+            title="Indexed datasets and workspace references"
           >
             Datasets
           </button>
@@ -205,12 +210,30 @@ export function WorkspaceToolbar({
                     {d.format} · {d.rowCount.toLocaleString()} rows ·{" "}
                     {(d.bytes / (1024 * 1024)).toFixed(1)} MiB
                   </span>
+                  {(datasetRefs.get(d.id) ?? []).length > 0 ? (
+                    <span className="w-full text-[10px] text-neutral-600">
+                      Used by: {(datasetRefs.get(d.id) ?? []).join(", ")}
+                    </span>
+                  ) : (
+                    <span className="w-full text-[10px] text-amber-800">
+                      Unused in any workspace
+                    </span>
+                  )}
                   <button
                     type="button"
                     className={`${btnClass} shrink-0 text-red-800 hover:bg-red-50`}
                     onClick={() => {
                       void (async () => {
-                        const store = createDatasetStore();
+                        const refs = datasetRefs.get(d.id) ?? [];
+                        if (
+                          refs.length > 0 &&
+                          !window.confirm(
+                            `This dataset is referenced by workspace(s): ${refs.join(", ")}. Delete it anyway?`,
+                          )
+                        ) {
+                          return;
+                        }
+                        const store = getAppDatasetStore();
                         await store.delete(d.id);
                         await refreshDatasets();
                       })();
@@ -223,8 +246,8 @@ export function WorkspaceToolbar({
             </ul>
           )}
           <p className="mt-2 text-[10px] text-neutral-500">
-            Replace a workspace dataset from the Data source node (Load tab). Deleting here may
-            break workspaces that still reference the id until you reload a file.
+            Replace from the Data source node (Choose file or Replace dataset). Deleting removes the
+            stored rows; workspaces that still reference the id need a new file on the source.
           </p>
         </div>
       ) : null}

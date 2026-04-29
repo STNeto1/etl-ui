@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import type {
   AggregateMetricDef,
   AggregateMetricOp,
@@ -22,11 +22,8 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
-  const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const payload = useMemo(
-    () => (incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null),
-    [edges, incoming, nodes],
-  );
+  const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
+  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const headers = useMemo(() => payload?.headers ?? [], [payload]);
   const groupKeys = useMemo(() => data.groupKeys ?? [], [data.groupKeys]);
   const metrics = useMemo(() => data.metrics ?? [], [data.metrics]);
@@ -142,7 +139,7 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
         / max use finite numbers only (non-numeric cells skipped for avg).
       </p>
 
-      {incoming.length === 0 ? (
+      {incomingEdge == null ? (
         <div
           className="nodrag nopan mt-1 rounded border border-dashed border-neutral-200 bg-neutral-50 px-2 py-2 text-[11px] text-neutral-500"
           onPointerDownCapture={(event) => event.stopPropagation()}

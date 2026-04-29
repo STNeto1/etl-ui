@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularOutputForEdge } from "../graph/tabularOutput";
+import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import type {
   AppNode,
   LimitSampleMode,
@@ -13,11 +13,8 @@ export function LimitSampleNode({ id, data }: NodeProps<LimitSampleNodeType>) {
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
-  const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const payload = useMemo(
-    () => (incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null),
-    [edges, incoming, nodes],
-  );
+  const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
+  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
   const upstreamRowCount = payload?.rows.length ?? 0;
 
   const mode = data.limitSampleMode ?? "first";
@@ -103,7 +100,7 @@ export function LimitSampleNode({ id, data }: NodeProps<LimitSampleNodeType>) {
         )}
       </div>
 
-      {incoming.length > 0 && (
+      {incomingEdge != null && (
         <p className="mt-1 px-1 text-[10px] text-neutral-500">Upstream rows: {upstreamRowCount}</p>
       )}
 

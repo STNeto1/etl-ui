@@ -1,20 +1,36 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import {
-  collectRowSourceToPayload,
-  getTabularOutputForEdge,
-  getTabularOutputForEdgeAsync,
-} from "../graph/tabularOutput";
-import { csvPayloadToString, normalizeCsvFileName } from "../download/toCsv";
+import { normalizeCsvFileName, streamRowSourceToCsvBlob } from "../download/toCsv";
+import { getTabularOutputForEdgeAsync } from "../graph/tabularOutput";
 import type { AppNode, DownloadNode as DownloadNodeType, DownloadNodeData } from "../types/flow";
 
 export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
   const { setNodes } = useReactFlow();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
+  const [busy, setBusy] = useState(false);
+  const [rowCount, setRowCount] = useState<number | null>(null);
+  const [colCount, setColCount] = useState<number | null>(null);
 
-  const incoming = useMemo(() => edges.filter((edge) => edge.target === id), [edges, id]);
-  const upstream = incoming.length > 0 ? getTabularOutputForEdge(incoming[0], nodes, edges) : null;
+  const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
+
+  useEffect(() => {
+    if (incomingEdge == null) {
+      setRowCount(null);
+      setColCount(null);
+      return;
+    }
+    let cancelled = false;
+    void getTabularOutputForEdgeAsync(incomingEdge, nodes, edges).then((rs) => {
+      if (cancelled || rs == null) return;
+      setRowCount(rs.rowCount ?? null);
+      setColCount(rs.headers.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [incomingEdge, nodes, edges]);
+
   const safeFileName = normalizeCsvFileName(data.fileName ?? "export.csv");
 
   const patchData = useCallback(
@@ -31,21 +47,27 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
   );
 
   const onDownload = useCallback(async () => {
-    if (incoming.length === 0) return;
-    const rs = await getTabularOutputForEdgeAsync(incoming[0]!, nodes, edges);
-    if (rs == null) return;
-    const payload = await collectRowSourceToPayload(rs);
-    const csv = csvPayloadToString(payload);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    const objectUrl = URL.createObjectURL(blob);
-    link.href = objectUrl;
-    link.download = safeFileName;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(objectUrl);
-  }, [safeFileName, incoming, nodes, edges]);
+    if (incomingEdge == null) return;
+    setBusy(true);
+    try {
+      const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges);
+      if (rs == null) return;
+      const blob = await streamRowSourceToCsvBlob(rs);
+      const link = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      link.href = objectUrl;
+      link.download = safeFileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+    } finally {
+      setBusy(false);
+    }
+  }, [safeFileName, incomingEdge, nodes, edges]);
+
+  const ready = incomingEdge != null && colCount != null;
+  const canDownload = incomingEdge != null;
 
   return (
     <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
@@ -71,30 +93,29 @@ export function DownloadNode({ id, data }: NodeProps<DownloadNodeType>) {
         />
       </div>
 
-      {incoming.length === 0 ? (
+      {incomingEdge == null ? (
         <p className="mt-2 px-1 text-[10px] text-neutral-500">
           Connect an upstream node that outputs tabular data.
         </p>
-      ) : upstream == null ? (
-        <p className="mt-2 px-1 text-[10px] text-neutral-500">
-          Upstream data is not available yet. Load CSV on the source or fix the chain.
-        </p>
+      ) : !ready ? (
+        <p className="mt-2 px-1 text-[10px] text-neutral-500">Resolving upstream data…</p>
       ) : (
         <div className="mt-2 rounded border border-neutral-200 bg-white px-2 py-2">
           <div className="flex items-center justify-between text-[11px] text-neutral-700">
             <span>Rows</span>
-            <span className="font-medium">{upstream.rows.length}</span>
+            <span className="font-medium">{rowCount?.toLocaleString() ?? "?"}</span>
           </div>
           <div className="mt-1 flex items-center justify-between text-[11px] text-neutral-700">
             <span>Columns</span>
-            <span className="font-medium">{upstream.headers.length}</span>
+            <span className="font-medium">{colCount ?? "?"}</span>
           </div>
           <button
             type="button"
+            disabled={busy || !canDownload}
             onClick={() => void onDownload()}
-            className="mt-2 w-full rounded border border-neutral-300 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-neutral-800"
+            className="mt-2 w-full rounded border border-neutral-300 bg-neutral-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-neutral-800 disabled:opacity-50"
           >
-            Download CSV
+            {busy ? "Exporting…" : "Download CSV"}
           </button>
         </div>
       )}
