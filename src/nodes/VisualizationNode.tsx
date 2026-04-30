@@ -62,48 +62,59 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     let cancelled = false;
     const preservePreviousReady = hasReadyResolutionRef.current;
     void (async () => {
-      const incoming = edges.filter((e) => e.target === id);
-      if (incoming.length === 0) {
+      try {
+        const incoming = edges.filter((e) => e.target === id);
+        if (incoming.length === 0) {
+          if (!cancelled && requestSeq === requestSeqRef.current) {
+            setIsRefreshing(false);
+            setResolution({ kind: "no-edge" });
+          }
+          return;
+        }
+        if (!cancelled && requestSeq === requestSeqRef.current) {
+          if (preservePreviousReady) {
+            setIsRefreshing(true);
+          } else {
+            setResolution({ kind: "loading" });
+          }
+        }
+        const edge = incoming[0]!;
+        const parentId = edge.source;
+        const parent = nodes.find((n) => n.id === parentId);
+        const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
+        const preview = await getPreviewForEdgeAsync(edge, nodes, edges, cap);
+        if (cancelled || requestSeq !== requestSeqRef.current) return;
+        if (preview.headers.length === 0 && preview.rows.length === 0) {
+          setIsRefreshing(false);
+          setResolution({ kind: "no-data" });
+          return;
+        }
+
+        const displayRows = preview.rows;
+        const viaFilter = parent?.type === "filter";
+        const rowsBeforeFilter: number | null = null;
+
+        setResolution({
+          kind: "ready",
+          headers: preview.headers,
+          displayRows,
+          totalRows: null,
+          viaFilter,
+          rowsBeforeFilter,
+        });
+        setIsRefreshing(false);
+
+        const totalRowsResolved = await getRowCountForEdgeAsync(edge, nodes, edges);
+        if (cancelled || requestSeq !== requestSeqRef.current) return;
+        setResolution((prev) =>
+          prev.kind === "ready" ? { ...prev, totalRows: totalRowsResolved } : prev,
+        );
+      } catch {
         if (!cancelled && requestSeq === requestSeqRef.current) {
           setIsRefreshing(false);
-          setResolution({ kind: "no-edge" });
-        }
-        return;
-      }
-      if (!cancelled && requestSeq === requestSeqRef.current) {
-        if (preservePreviousReady) {
-          setIsRefreshing(true);
-        } else {
-          setResolution({ kind: "loading" });
+          setResolution({ kind: "no-data" });
         }
       }
-      const edge = incoming[0]!;
-      const parentId = edge.source;
-      const parent = nodes.find((n) => n.id === parentId);
-      const cap = Math.min(MAX_PREVIEW_ROWS, Math.max(1, requestedRows));
-      const preview = await getPreviewForEdgeAsync(edge, nodes, edges, cap);
-      const totalRowsResolved = await getRowCountForEdgeAsync(edge, nodes, edges);
-      if (cancelled || requestSeq !== requestSeqRef.current) return;
-      if (preview.headers.length === 0 && preview.rows.length === 0) {
-        setIsRefreshing(false);
-        setResolution({ kind: "no-data" });
-        return;
-      }
-      const displayRows = preview.rows;
-      const totalRows = totalRowsResolved;
-
-      const viaFilter = parent?.type === "filter";
-      const rowsBeforeFilter: number | null = null;
-
-      setIsRefreshing(false);
-      setResolution({
-        kind: "ready",
-        headers: preview.headers,
-        displayRows,
-        totalRows,
-        viaFilter,
-        rowsBeforeFilter,
-      });
     })();
     return () => {
       cancelled = true;
