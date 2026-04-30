@@ -167,6 +167,38 @@ function isNumericTemplateExpression(expr: string): boolean {
   return NUMERIC_LITERAL_CHARS.test(nonPlaceholder);
 }
 
+function normalizeHeaderKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function findHeaderByNormalizedKey(key: string, availableHeaders: Set<string>): string | null {
+  const normalized = normalizeHeaderKey(key);
+  if (!normalized) return null;
+  const matches: string[] = [];
+  for (const header of availableHeaders) {
+    if (normalizeHeaderKey(header) === normalized) {
+      matches.push(header);
+      if (matches.length > 1) return null;
+    }
+  }
+  return matches[0] ?? null;
+}
+
+function warnNearHeaderMismatch(
+  context: string,
+  requestedHeader: string,
+  availableHeaders: Iterable<string>,
+): void {
+  const set = new Set(availableHeaders);
+  const near = findHeaderByNormalizedKey(requestedHeader, set);
+  if (near == null || near === requestedHeader) return;
+  logPlannerFallback(`${context}: requested "${requestedHeader}" but found "${near}"`);
+}
+
 function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): string | null {
   if (!isNumericTemplateExpression(expr)) return null;
   let usesPlaceholder = false;
@@ -187,6 +219,40 @@ function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): s
   if (!NUMERIC_LITERAL_CHARS.test(trimmed)) return null;
   if (!usesPlaceholder && !/[\d]/.test(trimmed)) return null;
   return `CASE WHEN TRY_CAST((${trimmed}) AS DOUBLE) IS NULL THEN '' ELSE CAST((${trimmed}) AS VARCHAR) END`;
+}
+
+function buildStringComputeExpr(expr: string, availableHeaders: Set<string>): string | null {
+  const parts: string[] = [];
+  let cursor = 0;
+  TEMPLATE_PLACEHOLDER.lastIndex = 0;
+  for (const match of expr.matchAll(TEMPLATE_PLACEHOLDER)) {
+    const full = match[0] ?? "";
+    const idx = match.index ?? 0;
+    const before = expr.slice(cursor, idx);
+    if (before.length > 0) {
+      parts.push(quoteSqlString(before));
+    }
+    const key = String(match[1] ?? "").trim();
+    if (!key) {
+      parts.push("''");
+    } else if (availableHeaders.has(key)) {
+      parts.push(`COALESCE(CAST(${quoteSqlIdent(key)} AS VARCHAR), '')`);
+    } else {
+      const near = findHeaderByNormalizedKey(key, availableHeaders);
+      if (near != null) {
+        return null;
+      }
+      return null;
+    }
+    cursor = idx + full.length;
+  }
+  if (cursor < expr.length) {
+    parts.push(quoteSqlString(expr.slice(cursor)));
+  }
+  if (parts.length === 0) {
+    return quoteSqlString(expr);
+  }
+  return `CAST((${parts.join(" || ")}) AS VARCHAR)`;
 }
 
 function castExpr(column: string, target: string): string {
@@ -306,7 +372,11 @@ async function planNode(
       if (inEdge == null) return null;
       const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
       if (up == null) return null;
-      const headers = (node.data.selectedColumns ?? []).filter((h) => up.headers.includes(h));
+      const headers = (node.data.selectedColumns ?? []).filter((h) => {
+        const ok = up.headers.includes(h);
+        if (!ok) warnNearHeaderMismatch("selectColumns", h, up.headers);
+        return ok;
+      });
       return {
         headers,
         sql: `SELECT ${selectAll(headers)} FROM (${up.sql})`,
@@ -322,7 +392,12 @@ async function planNode(
       for (const r of node.data.renames ?? []) {
         const from = r.fromColumn?.trim() ?? "";
         const to = r.toColumn?.trim() ?? "";
-        if (!from || !to || !up.headers.includes(from)) continue;
+        if (!from || !to) continue;
+        if (!up.headers.includes(from)) {
+          warnNearHeaderMismatch("renameColumns.from", from, up.headers);
+          continue;
+        }
+        if (up.headers.includes(to)) continue;
         map.set(from, to);
       }
       const headers = up.headers.map((h) => map.get(h) ?? h);
@@ -339,7 +414,11 @@ async function planNode(
       const casts = new Map<string, string>();
       for (const c of node.data.casts ?? []) {
         const col = c.column?.trim() ?? "";
-        if (!col || !up.headers.includes(col)) continue;
+        if (!col) continue;
+        if (!up.headers.includes(col)) {
+          warnNearHeaderMismatch("castColumns", col, up.headers);
+          continue;
+        }
         casts.set(col, c.target);
       }
       const projections = up.headers
@@ -383,7 +462,11 @@ async function planNode(
 
       for (const fill of fills) {
         const col = fill.column.trim();
-        if (!col || !headerSet.has(col)) continue;
+        if (!col) continue;
+        if (!headerSet.has(col)) {
+          warnNearHeaderMismatch("fillReplace.fill", col, up.headers);
+          continue;
+        }
         for (let i = 0; i < aliases.length; i += 1) {
           if (aliases[i]!.out !== col) continue;
           aliases[i] = {
@@ -399,7 +482,10 @@ async function planNode(
         const targetCols =
           rep.column != null && rep.column.trim() !== "" ? [rep.column.trim()] : up.headers;
         for (const target of targetCols) {
-          if (!headerSet.has(target)) continue;
+          if (!headerSet.has(target)) {
+            warnNearHeaderMismatch("fillReplace.replace", target, up.headers);
+            continue;
+          }
           for (let i = 0; i < aliases.length; i += 1) {
             if (aliases[i]!.out !== target) continue;
             aliases[i] = {
@@ -512,10 +598,20 @@ async function planNode(
         if (!outName) continue;
         const refs = parseTemplateRefs(def.expression);
         if (refs.some((r) => !available.has(r))) {
+          for (const ref of refs) {
+            if (!available.has(ref)) {
+              warnNearHeaderMismatch("computeColumn", ref, available);
+            }
+          }
           return null;
         }
         const numericExpr = buildNumericComputeExpr(def.expression, available);
-        if (numericExpr == null) {
+        const computeExpr = numericExpr ?? buildStringComputeExpr(def.expression, available);
+        if (computeExpr == null) {
+          for (const ref of refs) {
+            if (available.has(ref)) continue;
+            warnNearHeaderMismatch("computeColumn", ref, available);
+          }
           return null;
         }
         if (!seenHeaders.has(outName)) {
@@ -524,7 +620,7 @@ async function planNode(
         }
         available.add(outName);
         const projections = outHeaders.map((h) => {
-          if (h === outName) return `${numericExpr} AS ${quoteSqlIdent(h)}`;
+          if (h === outName) return `${computeExpr} AS ${quoteSqlIdent(h)}`;
           return `${quoteSqlIdent(h)} AS ${quoteSqlIdent(h)}`;
         });
         currentSql = `SELECT ${projections.join(", ")} FROM (${currentSql})`;
@@ -681,7 +777,14 @@ async function planNode(
       const leftSet = new Set(left.headers);
       const rightSet = new Set(right.headers);
       for (const p of pairs) {
-        if (!leftSet.has(p.leftColumn) || !rightSet.has(p.rightColumn)) return null;
+        if (!leftSet.has(p.leftColumn)) {
+          warnNearHeaderMismatch("join.leftColumn", p.leftColumn, left.headers);
+          return null;
+        }
+        if (!rightSet.has(p.rightColumn)) {
+          warnNearHeaderMismatch("join.rightColumn", p.rightColumn, right.headers);
+          return null;
+        }
       }
       const rightOut = dedupeRightHeaders(left.headers, right.headers);
       const kind = node.data.joinKind === "left" ? "LEFT" : "INNER";
@@ -1024,3 +1127,11 @@ export function logPlannerFallback(reason: string): void {
   }
   console.warn(`[duckdb-planner-fallback] ${reason}`);
 }
+
+export const __plannerTest = {
+  normalizeHeaderKey,
+  findHeaderByNormalizedKey,
+  warnNearHeaderMismatch,
+  buildNumericComputeExpr,
+  buildStringComputeExpr,
+};

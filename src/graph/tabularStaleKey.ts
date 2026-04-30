@@ -88,11 +88,16 @@ export function upstreamSubgraphStaleKey(
   nodes: AppNode[],
 ): string {
   const ids = collectReverseUpstreamNodeIds(seedSourceId, edges);
+  const idSet = new Set(ids);
+  const upstreamEdges = edges
+    .filter((e) => idSet.has(e.source) && idSet.has(e.target))
+    .map((e) => edgeStructuralKey(e))
+    .sort();
   const fingerprints = ids.map((nodeId) => {
     const n = nodes.find((x) => x.id === nodeId);
     return n != null ? tabularUpstreamNodeFingerprint(n) : `missing:${nodeId}`;
   });
-  return `${ids.join(">")}#${fingerprints.join("|")}`;
+  return `${ids.join(">")}#nodes:${fingerprints.join("|")}#edges:${upstreamEdges.join("|")}`;
 }
 
 /**

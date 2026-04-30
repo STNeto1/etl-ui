@@ -7,16 +7,22 @@ import {
   defaultComputeColumnData,
   defaultConditionalData,
   defaultDataSourceData,
+  defaultDeduplicateData,
   defaultFilterData,
+  defaultFillReplaceData,
   defaultJoinData,
+  defaultLimitSampleData,
   defaultMergeUnionData,
+  defaultPivotUnpivotData,
   defaultRenameColumnsData,
   defaultSelectColumnsData,
   defaultSortData,
+  defaultSwitchData,
   defaultVisualizationData,
 } from "../types/flow";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
+import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
 import { DEMO_TEMPLATE_CSV } from "./demoSeedCsv";
 
 /** Minimum horizontal gap between node centers for toolbar card widths. */
@@ -28,7 +34,12 @@ export type WorkspaceTemplateId =
   | "compute"
   | "transforms"
   | "branch_merge"
-  | "join";
+  | "join"
+  | "quality"
+  | "switch_routes"
+  | "pivot_unpivot"
+  | "sample_debug"
+  | "http_api";
 
 export type WorkspaceTemplateMeta = {
   id: WorkspaceTemplateId;
@@ -66,6 +77,31 @@ export const WORKSPACE_TEMPLATE_LIST: readonly WorkspaceTemplateMeta[] = [
     id: "join",
     name: "Join",
     description: "Same source to both sides (self-join on id)",
+  },
+  {
+    id: "quality",
+    name: "Data quality",
+    description: "Fill, cast, dedupe, then preview",
+  },
+  {
+    id: "switch_routes",
+    name: "Switch routes",
+    description: "Route by region, merge branches, preview",
+  },
+  {
+    id: "pivot_unpivot",
+    name: "Pivot / Unpivot",
+    description: "Wide to long then back to wide",
+  },
+  {
+    id: "sample_debug",
+    name: "Sample debug",
+    description: "Sort then limit/sample for fast inspection",
+  },
+  {
+    id: "http_api",
+    name: "HTTP API",
+    description: "HTTP source -> rename/select/cast -> preview",
   },
 ] as const;
 
@@ -355,6 +391,310 @@ function snapshotJoin(): { nodes: AppNode[]; edges: Edge[] } {
   };
 }
 
+function snapshotQuality(): { nodes: AppNode[]; edges: Edge[] } {
+  const fillId = "tmpl-q-fill";
+  const castId = "tmpl-q-cast";
+  const dedupeId = "tmpl-q-dedupe";
+  const vizId = "tmpl-q-viz";
+  const x0 = 40;
+  const y = 80;
+  return {
+    nodes: [
+      dataSourceNode(x0, y),
+      {
+        id: fillId,
+        type: "fillReplace",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X, y },
+        data: {
+          ...defaultFillReplaceData(),
+          label: "Fill / Replace",
+          fills: [{ id: "qf1", column: "region", fillValue: "Unknown" }],
+          replacements: [{ id: "qr1", column: "region", from: "East", to: "EAST" }],
+        },
+      },
+      {
+        id: castId,
+        type: "castColumns",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 2, y },
+        data: {
+          ...defaultCastColumnsData(),
+          label: "Cast",
+          casts: [{ id: "qc1", column: "amount", target: "number" }],
+        },
+      },
+      {
+        id: dedupeId,
+        type: "deduplicate",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 3, y },
+        data: {
+          ...defaultDeduplicateData(),
+          label: "Deduplicate",
+          dedupeMode: "keyColumns",
+          dedupeKeys: ["id"],
+        },
+      },
+      {
+        id: vizId,
+        type: "visualization",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 4, y },
+        data: { ...defaultVisualizationData(), label: "Quality preview", previewRows: 8 },
+      },
+    ],
+    edges: [
+      { id: "tmpl-q-e0", source: DATA_SOURCE_NODE_ID, target: fillId },
+      { id: "tmpl-q-e1", source: fillId, target: castId },
+      { id: "tmpl-q-e2", source: castId, target: dedupeId },
+      { id: "tmpl-q-e3", source: dedupeId, target: vizId },
+    ],
+  };
+}
+
+function snapshotSwitchRoutes(): { nodes: AppNode[]; edges: Edge[] } {
+  const swId = "tmpl-sw";
+  const mergeId = "tmpl-sw-merge";
+  const vizId = "tmpl-sw-viz";
+  const x0 = 40;
+  const y = 80;
+  return {
+    nodes: [
+      dataSourceNode(x0, y),
+      {
+        id: swId,
+        type: "switch",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X, y },
+        data: {
+          ...defaultSwitchData(),
+          label: "Switch region",
+          branches: [
+            {
+              id: "north",
+              label: "North",
+              combineAll: true,
+              rules: [{ id: "s1", column: "region", op: "eq", value: "North" }],
+            },
+            {
+              id: "south",
+              label: "South",
+              combineAll: true,
+              rules: [{ id: "s2", column: "region", op: "eq", value: "South" }],
+            },
+          ],
+        },
+      },
+      {
+        id: mergeId,
+        type: "mergeUnion",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 2, y },
+        data: { ...defaultMergeUnionData(), label: "Merge routes" },
+      },
+      {
+        id: vizId,
+        type: "visualization",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 3, y },
+        data: { ...defaultVisualizationData(), label: "Routed preview", previewRows: 8 },
+      },
+    ],
+    edges: [
+      { id: "tmpl-sw-e0", source: DATA_SOURCE_NODE_ID, target: swId },
+      {
+        id: "tmpl-sw-e1",
+        source: swId,
+        target: mergeId,
+        sourceHandle: switchBranchSourceHandle("north"),
+      },
+      {
+        id: "tmpl-sw-e2",
+        source: swId,
+        target: mergeId,
+        sourceHandle: switchBranchSourceHandle("south"),
+      },
+      { id: "tmpl-sw-e3", source: swId, target: mergeId, sourceHandle: SWITCH_DEFAULT_HANDLE },
+      { id: "tmpl-sw-e4", source: mergeId, target: vizId },
+    ],
+  };
+}
+
+function snapshotPivotUnpivot(): { nodes: AppNode[]; edges: Edge[] } {
+  const unpivotId = "tmpl-pu-unpivot";
+  const pivotId = "tmpl-pu-pivot";
+  const vizId = "tmpl-pu-viz";
+  const x0 = 40;
+  const y = 80;
+  return {
+    nodes: [
+      dataSourceNode(x0, y),
+      {
+        id: unpivotId,
+        type: "pivotUnpivot",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X, y },
+        data: {
+          ...defaultPivotUnpivotData(),
+          label: "Unpivot",
+          pivotUnpivotMode: "unpivot",
+          idColumns: ["id"],
+          nameColumn: "metric",
+          valueColumn: "value",
+        },
+      },
+      {
+        id: pivotId,
+        type: "pivotUnpivot",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 2, y },
+        data: {
+          ...defaultPivotUnpivotData(),
+          label: "Pivot back",
+          pivotUnpivotMode: "pivot",
+          indexColumns: ["id"],
+          namesColumn: "metric",
+          valuesColumn: "value",
+        },
+      },
+      {
+        id: vizId,
+        type: "visualization",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 3, y },
+        data: { ...defaultVisualizationData(), label: "Pivot preview", previewRows: 8 },
+      },
+    ],
+    edges: [
+      { id: "tmpl-pu-e0", source: DATA_SOURCE_NODE_ID, target: unpivotId },
+      { id: "tmpl-pu-e1", source: unpivotId, target: pivotId },
+      { id: "tmpl-pu-e2", source: pivotId, target: vizId },
+    ],
+  };
+}
+
+function snapshotSampleDebug(): { nodes: AppNode[]; edges: Edge[] } {
+  const sortId = "tmpl-sd-sort";
+  const sampleId = "tmpl-sd-sample";
+  const vizId = "tmpl-sd-viz";
+  const x0 = 40;
+  const y = 80;
+  return {
+    nodes: [
+      dataSourceNode(x0, y),
+      {
+        id: sortId,
+        type: "sort",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X, y },
+        data: {
+          ...defaultSortData(),
+          label: "Sort by amount",
+          keys: [{ column: "amount", direction: "desc" }],
+        },
+      },
+      {
+        id: sampleId,
+        type: "limitSample",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 2, y },
+        data: {
+          ...defaultLimitSampleData(),
+          label: "First 5",
+          limitSampleMode: "first",
+          rowCount: 5,
+        },
+      },
+      {
+        id: vizId,
+        type: "visualization",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 3, y },
+        data: { ...defaultVisualizationData(), label: "Debug sample", previewRows: 8 },
+      },
+    ],
+    edges: [
+      { id: "tmpl-sd-e0", source: DATA_SOURCE_NODE_ID, target: sortId },
+      { id: "tmpl-sd-e1", source: sortId, target: sampleId },
+      { id: "tmpl-sd-e2", source: sampleId, target: vizId },
+    ],
+  };
+}
+
+function snapshotHttpApi(): { nodes: AppNode[]; edges: Edge[] } {
+  const sourceId = "tmpl-http-src";
+  const renameId = "tmpl-http-rename";
+  const selectId = "tmpl-http-select";
+  const castId = "tmpl-http-cast";
+  const vizId = "tmpl-http-viz";
+  const x0 = 40;
+  const y = 80;
+  return {
+    nodes: [
+      {
+        id: sourceId,
+        type: "dataSource",
+        position: { x: x0, y },
+        data: {
+          ...defaultDataSourceData(),
+          csv: {
+            headers: ["id", "firstName", "lastName", "age"],
+            rows: [
+              { id: "1", firstName: "Emily", lastName: "Johnson", age: "28" },
+              { id: "2", firstName: "Michael", lastName: "Williams", age: "35" },
+              { id: "3", firstName: "Sophia", lastName: "Brown", age: "22" },
+            ],
+          },
+          headers: ["id", "firstName", "lastName", "age"],
+          rowCount: 3,
+          sample: [
+            { id: "1", firstName: "Emily", lastName: "Johnson", age: "28" },
+            { id: "2", firstName: "Michael", lastName: "Williams", age: "35" },
+            { id: "3", firstName: "Sophia", lastName: "Brown", age: "22" },
+          ],
+          source: "http",
+          httpUrl: "https://dummyjson.com/users",
+          httpMethod: "GET",
+          httpJsonArrayPath: "users",
+        },
+      },
+      {
+        id: renameId,
+        type: "renameColumns",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X, y },
+        data: {
+          ...defaultRenameColumnsData(),
+          label: "Rename",
+          renames: [
+            { id: "hr1", fromColumn: "firstName", toColumn: "first_name" },
+            { id: "hr2", fromColumn: "lastName", toColumn: "last_name" },
+          ],
+        },
+      },
+      {
+        id: selectId,
+        type: "selectColumns",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 2, y },
+        data: {
+          ...defaultSelectColumnsData(),
+          label: "Select",
+          selectedColumns: ["id", "first_name", "last_name", "age"],
+        },
+      },
+      {
+        id: castId,
+        type: "castColumns",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 3, y },
+        data: {
+          ...defaultCastColumnsData(),
+          label: "Cast",
+          casts: [{ id: "hc1", column: "age", target: "integer" }],
+        },
+      },
+      {
+        id: vizId,
+        type: "visualization",
+        position: { x: x0 + TEMPLATE_NODE_GAP_X * 4, y },
+        data: { ...defaultVisualizationData(), label: "API preview", previewRows: 8 },
+      },
+    ],
+    edges: [
+      { id: "tmpl-http-e0", source: sourceId, target: renameId },
+      { id: "tmpl-http-e1", source: renameId, target: selectId },
+      { id: "tmpl-http-e2", source: selectId, target: castId },
+      { id: "tmpl-http-e3", source: castId, target: vizId },
+    ],
+  };
+}
+
 export function getWorkspaceTemplateSnapshot(id: WorkspaceTemplateId): {
   nodes: AppNode[];
   edges: Edge[];
@@ -372,5 +712,15 @@ export function getWorkspaceTemplateSnapshot(id: WorkspaceTemplateId): {
       return snapshotBranchMerge();
     case "join":
       return snapshotJoin();
+    case "quality":
+      return snapshotQuality();
+    case "switch_routes":
+      return snapshotSwitchRoutes();
+    case "pivot_unpivot":
+      return snapshotPivotUnpivot();
+    case "sample_debug":
+      return snapshotSampleDebug();
+    case "http_api":
+      return snapshotHttpApi();
   }
 }

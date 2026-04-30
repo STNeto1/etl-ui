@@ -167,7 +167,7 @@ describe("getTabularOutputAsync", () => {
     });
   });
 
-  it("falls back for non-numeric computeColumn templates", async () => {
+  it("supports string computeColumn templates", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["name", "id"],

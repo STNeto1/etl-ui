@@ -12,6 +12,16 @@ function mkEdge(id: string, source: string, target: string): Edge {
   return { id, source, target };
 }
 
+function mkHandledEdge(
+  id: string,
+  source: string,
+  target: string,
+  sourceHandle: string,
+  targetHandle?: string,
+): Edge {
+  return { id, source, target, sourceHandle, targetHandle };
+}
+
 describe("tabularStaleKey", () => {
   it("upstreamSubgraphStaleKey is stable across node position-only changes", () => {
     const edges: Edge[] = [mkEdge("e1", DATA_SOURCE_NODE_ID, "viz-1")];
@@ -66,5 +76,54 @@ describe("tabularStaleKey", () => {
     const jittered = visualizationUpstreamStaleKey(vizId, edges, [ds, movedViz]);
 
     expect(base).toBe(jittered);
+  });
+
+  it("upstreamSubgraphStaleKey changes when upstream edge topology changes", () => {
+    const seed = "merge-1";
+    const nodes: AppNode[] = [
+      {
+        id: DATA_SOURCE_NODE_ID,
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          datasetId: "dataset-uuid",
+          rowCount: 3,
+          headers: ["region"],
+          sample: [{ region: "North" }],
+          loadedAt: 1,
+        },
+      },
+      {
+        id: "cond-1",
+        type: "conditional",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Conditional",
+          combineAll: true,
+          rules: [{ id: "r1", column: "region", op: "eq", value: "North" }],
+        },
+      },
+      {
+        id: seed,
+        type: "mergeUnion",
+        position: { x: 0, y: 0 },
+        data: { label: "Merge", dedupeEnabled: false, dedupeMode: "fullRow", dedupeKeys: [] },
+      },
+    ];
+
+    const ifOnly: Edge[] = [
+      mkEdge("e1", DATA_SOURCE_NODE_ID, "cond-1"),
+      mkHandledEdge("e2", "cond-1", seed, "if"),
+    ];
+    const ifAndElse: Edge[] = [
+      mkEdge("e1", DATA_SOURCE_NODE_ID, "cond-1"),
+      mkHandledEdge("e2", "cond-1", seed, "if"),
+      mkHandledEdge("e3", "cond-1", seed, "else"),
+    ];
+
+    const k1 = upstreamSubgraphStaleKey(seed, ifOnly, nodes);
+    const k2 = upstreamSubgraphStaleKey(seed, ifAndElse, nodes);
+    expect(k1).not.toBe(k2);
   });
 });
