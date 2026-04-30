@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import { resetAppDatasetStoreForTests } from "../dataset/appDatasetStore";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
@@ -13,6 +13,7 @@ import {
 } from "./tabularOutput";
 import type { AppNode } from "../types/flow";
 import type { Edge } from "@xyflow/react";
+import * as planner from "./tabularSqlPlanner";
 
 const DATASET_DB = "etl-ui-datasets";
 
@@ -47,6 +48,16 @@ function dataSourceNode(
       sample: csv.rows.slice(0, 5),
     },
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("getTabularOutputAsync", () => {
@@ -372,6 +383,91 @@ describe("getTabularOutputAsync", () => {
     expect(preview.rows).toEqual([{ n: "1" }, { n: "2" }]);
     const count = await getRowCountForEdgeAsync(edge, nodes, [edge]);
     expect(count).toBe(3);
+  });
+
+  it("does not block preview while row counts are queued", async () => {
+    const store = getAppDatasetStore();
+    const makeMeta = async (name: string) =>
+      store.putNormalizedPayload(
+        {
+          headers: ["n"],
+          rows: [{ n: `${name}-1` }, { n: `${name}-2` }, { n: `${name}-3` }],
+        },
+        "csv",
+      );
+
+    const [m1, m2, mp] = await Promise.all([makeMeta("a"), makeMeta("b"), makeMeta("p")]);
+    const nodes: AppNode[] = [
+      {
+        id: "s1",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: m1.id,
+          format: "csv",
+          headers: m1.headers,
+          rowCount: m1.rowCount,
+          sample: m1.sample,
+        },
+      },
+      {
+        id: "s2",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: m2.id,
+          format: "csv",
+          headers: m2.headers,
+          rowCount: m2.rowCount,
+          sample: m2.sample,
+        },
+      },
+      {
+        id: "sp",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: mp.id,
+          format: "csv",
+          headers: mp.headers,
+          rowCount: mp.rowCount,
+          sample: mp.sample,
+        },
+      },
+    ];
+    const e1: Edge = { id: "e1", source: "s1", target: "v1" };
+    const e2: Edge = { id: "e2", source: "s2", target: "v2" };
+    const ep: Edge = { id: "ep", source: "sp", target: "vp" };
+    const edges: Edge[] = [e1, e2, ep];
+
+    const gate = deferred<void>();
+    let planCalls = 0;
+    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockImplementation(async () => {
+      planCalls += 1;
+      if (planCalls === 1) {
+        await gate.promise;
+      }
+      return null;
+    });
+
+    const c1 = getRowCountForEdgeAsync(e1, nodes, edges);
+    const c2 = getRowCountForEdgeAsync(e2, nodes, edges);
+    await Promise.resolve();
+    expect(planCalls).toBe(1);
+
+    const preview = await getPreviewForEdgeAsync(ep, nodes, edges, 2);
+    expect(preview.rows).toEqual([{ n: "p-1" }, { n: "p-2" }]);
+
+    gate.resolve();
+    await Promise.all([c1, c2]);
+    expect(planSpy).toHaveBeenCalledTimes(3);
+    planSpy.mockRestore();
   });
 
   it("exports planner CSV for edge download", async () => {

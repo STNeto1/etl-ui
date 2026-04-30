@@ -19,6 +19,8 @@ const TEMPLATE_PLACEHOLDER = /\{\{([\s\S]*?)\}\}/g;
 const NUMERIC_LITERAL_CHARS = /^[-+*/()\d.\s]*$/;
 const PLANNER_DEBUG =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
+const FALLBACK_LOG_TTL_MS = 30_000;
+const fallbackLogSeenAt = new Map<string, number>();
 
 type Planned = {
   headers: string[];
@@ -1007,5 +1009,18 @@ export async function canPlanSqlForEdge(
 }
 
 export function logPlannerFallback(reason: string): void {
+  const now = Date.now();
+  const last = fallbackLogSeenAt.get(reason);
+  if (last != null && now - last < FALLBACK_LOG_TTL_MS) {
+    return;
+  }
+  fallbackLogSeenAt.set(reason, now);
+  if (fallbackLogSeenAt.size > 512) {
+    for (const [key, seenAt] of fallbackLogSeenAt) {
+      if (now - seenAt >= FALLBACK_LOG_TTL_MS) {
+        fallbackLogSeenAt.delete(key);
+      }
+    }
+  }
   console.warn(`[duckdb-planner-fallback] ${reason}`);
 }

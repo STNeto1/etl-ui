@@ -4,16 +4,19 @@
  */
 
 import type { Edge } from "@xyflow/react";
-import { applyCastToPayload } from "../cast/applyCast";
-import { applyConstantColumns } from "../constantColumn/applyConstantColumns";
-import { applyComputeRow } from "../computeColumn/template";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
-import { applyFillReplaceToPayload } from "../fillReplace/applyFillReplace";
 import { rowPassesRules, rulesApplicableToHeaders } from "../filter/rowMatches";
-import type { AppNode, ComputeColumnDef, DataSourceNode } from "../types/flow";
+import type { AppNode, DataSourceNode } from "../types/flow";
 import type { RowSource } from "./rowSource";
 import { rowSourceFromPayload } from "./rowSource";
-import { applyHttpColumnRenames } from "./tabularCsvRename";
+import {
+  compileCastColumns,
+  compileComputeColumns,
+  compileConstantColumns,
+  compileFillReplace,
+  compileHttpColumnRenames,
+  compileSelectColumns,
+} from "./tabularRowTransformers";
 
 function visitKey(nodeId: string, branch: string | null): string {
   return `${nodeId}::${branch ?? "node"}`;
@@ -21,14 +24,6 @@ function visitKey(nodeId: string, branch: string | null): string {
 
 function getIncomingEdge(nodeId: string, edges: Edge[]): Edge | null {
   return edges.find((edge) => edge.target === nodeId) ?? null;
-}
-
-function emptyAlignedRow(headers: string[]): Record<string, string> {
-  const row: Record<string, string> = {};
-  for (const h of headers) {
-    row[h] = "";
-  }
-  return row;
 }
 
 /**
@@ -54,8 +49,15 @@ export async function tryStreamingRowSourceForNode(
       const ds = node as DataSourceNode;
       const renames = ds.data.httpColumnRenames ?? [];
       if (ds.data.csv != null) {
-        const csv = applyHttpColumnRenames(ds.data.csv, renames);
-        return rowSourceFromPayload(csv);
+        const compiledRename = compileHttpColumnRenames(ds.data.csv.headers, renames);
+        if (compiledRename.transform == null) {
+          return rowSourceFromPayload(ds.data.csv);
+        }
+        const transform = compiledRename.transform;
+        return rowSourceFromPayload({
+          headers: compiledRename.headers,
+          rows: ds.data.csv.rows.map((row) => transform(row)),
+        });
       }
       const datasetId = ds.data.datasetId;
       if (datasetId == null) return null;
@@ -68,16 +70,9 @@ export async function tryStreamingRowSourceForNode(
         ds.data.rowCount > 0
           ? ds.data.rowCount
           : ((await store.meta(datasetId))?.rowCount ?? undefined);
-      const renamedHeaders =
-        renames.length > 0
-          ? applyHttpColumnRenames(
-              { headers: alignedHeaders, rows: [emptyAlignedRow(alignedHeaders)] },
-              renames,
-            ).headers
-          : alignedHeaders;
-      const useRenames = renames.length > 0;
+      const compiledRename = compileHttpColumnRenames(alignedHeaders, renames);
       return {
-        headers: renamedHeaders,
+        headers: compiledRename.headers,
         rowCount,
         async *rows() {
           for await (const row of store.scan(datasetId)) {
@@ -85,15 +80,7 @@ export async function tryStreamingRowSourceForNode(
             for (const h of alignedHeaders) {
               aligned[h] = row[h] ?? "";
             }
-            if (useRenames) {
-              const out = applyHttpColumnRenames(
-                { headers: alignedHeaders, rows: [aligned] },
-                renames,
-              );
-              yield out.rows[0]!;
-            } else {
-              yield aligned;
-            }
+            yield compiledRename.transform != null ? compiledRename.transform(aligned) : aligned;
           }
         },
       };
@@ -148,18 +135,16 @@ export async function tryStreamingRowSourceForNode(
         visited,
       );
       if (upstream == null) return null;
-      const selected = node.data.selectedColumns ?? [];
-      const headers = selected.filter((h) => upstream.headers.includes(h));
+      const compiledSelect = compileSelectColumns(
+        upstream.headers,
+        node.data.selectedColumns ?? [],
+      );
       return {
-        headers,
+        headers: compiledSelect.headers,
         rowCount: undefined,
         async *rows() {
           for await (const row of upstream.rows()) {
-            const o: Record<string, string> = {};
-            for (const h of headers) {
-              o[h] = row[h] ?? "";
-            }
-            yield o;
+            yield compiledSelect.transform != null ? compiledSelect.transform(row) : row;
           }
         },
       };
@@ -176,21 +161,13 @@ export async function tryStreamingRowSourceForNode(
         visited,
       );
       if (upstream == null) return null;
-      const renames = node.data.renames ?? [];
-      const renamedHeaders =
-        renames.length > 0
-          ? applyHttpColumnRenames(
-              { headers: upstream.headers, rows: [emptyAlignedRow(upstream.headers)] },
-              renames,
-            ).headers
-          : upstream.headers;
+      const compiledRename = compileHttpColumnRenames(upstream.headers, node.data.renames ?? []);
       return {
-        headers: renamedHeaders,
+        headers: compiledRename.headers,
         rowCount: upstream.rowCount,
         async *rows() {
           for await (const row of upstream.rows()) {
-            const out = applyHttpColumnRenames({ headers: upstream.headers, rows: [row] }, renames);
-            yield out.rows[0]!;
+            yield compiledRename.transform != null ? compiledRename.transform(row) : row;
           }
         },
       };
@@ -207,12 +184,12 @@ export async function tryStreamingRowSourceForNode(
         visited,
       );
       if (upstream == null) return null;
-      const casts = (node.data.casts ?? []).map((c) => ({
+      const castRules = (node.data.casts ?? []).map((c) => ({
         column: c.column,
         target: c.target,
       }));
-      const hasEffectiveCast = casts.some((c) => c.column.trim().length > 0);
-      if (!hasEffectiveCast) {
+      const transform = compileCastColumns(upstream.headers, castRules);
+      if (transform == null) {
         return upstream;
       }
       return {
@@ -220,8 +197,7 @@ export async function tryStreamingRowSourceForNode(
         rowCount: upstream.rowCount,
         async *rows() {
           for await (const row of upstream.rows()) {
-            const out = applyCastToPayload({ headers: upstream.headers, rows: [row] }, casts);
-            yield out.rows[0]!;
+            yield transform(row);
           }
         },
       };
@@ -238,9 +214,12 @@ export async function tryStreamingRowSourceForNode(
         visited,
       );
       if (upstream == null) return null;
-      const fills = node.data.fills ?? [];
-      const replacements = node.data.replacements ?? [];
-      if (fills.length === 0 && replacements.length === 0) {
+      const transform = compileFillReplace(
+        upstream.headers,
+        node.data.fills ?? [],
+        node.data.replacements ?? [],
+      );
+      if (transform == null) {
         return upstream;
       }
       return {
@@ -248,12 +227,7 @@ export async function tryStreamingRowSourceForNode(
         rowCount: upstream.rowCount,
         async *rows() {
           for await (const row of upstream.rows()) {
-            const out = applyFillReplaceToPayload(
-              { headers: upstream.headers, rows: [row] },
-              fills,
-              replacements,
-            );
-            yield out.rows[0]!;
+            yield transform(row);
           }
         },
       };
@@ -270,25 +244,17 @@ export async function tryStreamingRowSourceForNode(
         visited,
       );
       if (upstream == null) return null;
-      const defs = node.data.columns ?? [];
-      if (defs.length === 0) {
+      const compiledCompute = compileComputeColumns(upstream.headers, node.data.columns ?? []);
+      if (compiledCompute.transform == null) {
         return upstream;
       }
-      const inputHeaders = upstream.headers;
-      const defsTyped = defs as ComputeColumnDef[];
-      const empty = emptyAlignedRow(inputHeaders);
-      const outHeaders = applyComputeRow(empty, inputHeaders, defsTyped).headers;
+      const transform = compiledCompute.transform;
       return {
-        headers: outHeaders,
+        headers: compiledCompute.headers,
         rowCount: upstream.rowCount,
         async *rows() {
           for await (const row of upstream.rows()) {
-            const { row: outRow } = applyComputeRow(row, inputHeaders, defsTyped);
-            const picked: Record<string, string> = {};
-            for (const col of outHeaders) {
-              picked[col] = outRow[col] ?? "";
-            }
-            yield picked;
+            yield transform(row);
           }
         },
       };
@@ -309,21 +275,17 @@ export async function tryStreamingRowSourceForNode(
         columnName: c.columnName,
         value: c.value,
       }));
-      if (constants.length === 0) {
+      const compiledConstants = compileConstantColumns(upstream.headers, constants);
+      if (compiledConstants.transform == null) {
         return upstream;
       }
-      const preview = applyConstantColumns(
-        { headers: upstream.headers, rows: [emptyAlignedRow(upstream.headers)] },
-        constants,
-      );
-      const headersOut = preview.headers;
+      const transform = compiledConstants.transform;
       return {
-        headers: headersOut,
+        headers: compiledConstants.headers,
         rowCount: upstream.rowCount,
         async *rows() {
           for await (const row of upstream.rows()) {
-            const out = applyConstantColumns({ headers: upstream.headers, rows: [row] }, constants);
-            yield out.rows[0]!;
+            yield transform(row);
           }
         },
       };

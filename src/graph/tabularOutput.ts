@@ -33,10 +33,12 @@ import {
 } from "./tabularSqlPlanner";
 import { upstreamSubgraphStaleKey } from "./tabularStaleKey";
 import { streamRowSourceToCsvBlob } from "../download/toCsv";
-import { executeShared } from "./tabularExecutionCache";
+import { executeShared, maybeLogSharedExecutionCacheStats } from "./tabularExecutionCache";
+import { createSemaphore } from "./asyncSemaphore";
 
 const TABULAR_DEBUG =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
+const rowCountLane = createSemaphore(1);
 
 type ResolveOpts = { limit?: number; signal?: AbortSignal; consumer?: string };
 
@@ -386,7 +388,7 @@ export async function getPreviewForEdgeAsync(
     { limit: requested, consumer: "visualization-preview" },
   );
   const sharedKey = `preview:${reqKey}`;
-  return executeShared(
+  const result = await executeShared(
     sharedKey,
     async () => {
       try {
@@ -415,6 +417,8 @@ export async function getPreviewForEdgeAsync(
     },
     { cacheResolved: false },
   );
+  maybeLogSharedExecutionCacheStats("preview");
+  return result;
 }
 
 export async function getRowCountForEdgeAsync(
@@ -423,25 +427,29 @@ export async function getRowCountForEdgeAsync(
   edges: Edge[],
 ): Promise<number | null> {
   const cacheKey = rowCountCacheKey(incomingEdge, nodes, edges);
-  return executeShared(`rowCount:${cacheKey}`, async () => {
-    try {
-      const planned = await planSqlForEdge(incomingEdge, nodes, edges);
-      if (planned != null) {
-        const count = await runCountQuery(planned);
-        return count;
+  const result = await rowCountLane.run(() =>
+    executeShared(`rowCount:${cacheKey}`, async () => {
+      try {
+        const planned = await planSqlForEdge(incomingEdge, nodes, edges);
+        if (planned != null) {
+          const count = await runCountQuery(planned);
+          return count;
+        }
+      } catch (error) {
+        logPlannerFallback(
+          `count edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+        );
       }
-    } catch (error) {
-      logPlannerFallback(
-        `count edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
-      );
-    }
-    logPlannerFallback(`count edge ${incomingEdge.id}: planner unsupported, using fallback`);
-    const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
-      consumer: "rowCount",
-    });
-    if (rs == null) return null;
-    return rs.rowCount ?? (await countRowsInRowSource(rs));
-  });
+      logPlannerFallback(`count edge ${incomingEdge.id}: planner unsupported, using fallback`);
+      const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
+        consumer: "rowCount",
+      });
+      if (rs == null) return null;
+      return rs.rowCount ?? (await countRowsInRowSource(rs));
+    }),
+  );
+  maybeLogSharedExecutionCacheStats("rowCount");
+  return result;
 }
 
 export async function downloadCsvForEdgeAsync(
