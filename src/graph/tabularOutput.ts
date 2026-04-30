@@ -33,14 +33,12 @@ import {
 } from "./tabularSqlPlanner";
 import { upstreamSubgraphStaleKey } from "./tabularStaleKey";
 import { streamRowSourceToCsvBlob } from "../download/toCsv";
+import { executeShared } from "./tabularExecutionCache";
 
 const TABULAR_DEBUG =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 
 type ResolveOpts = { limit?: number; signal?: AbortSignal; consumer?: string };
-const inFlightPlannerByKey = new Map<string, Promise<RowSource | null>>();
-const rowCountCacheByKey = new Map<string, number>();
-const ROW_COUNT_CACHE_MAX = 128;
 
 function plannerRequestKey(
   sourceId: string,
@@ -56,15 +54,6 @@ function plannerRequestKey(
 function rowCountCacheKey(edge: Edge, nodes: AppNode[], edges: Edge[]): string {
   const stale = upstreamSubgraphStaleKey(edge.source, edges, nodes);
   return `${edge.source}::${edge.sourceHandle ?? "node"}::${stale}`;
-}
-
-function cacheRowCount(key: string, value: number): void {
-  rowCountCacheByKey.set(key, value);
-  if (rowCountCacheByKey.size <= ROW_COUNT_CACHE_MAX) return;
-  const firstKey = rowCountCacheByKey.keys().next().value;
-  if (typeof firstKey === "string") {
-    rowCountCacheByKey.delete(firstKey);
-  }
 }
 
 function visitKey(nodeId: string, branch: string | null): string {
@@ -269,22 +258,20 @@ export async function getTabularOutputForEdgeAsync(
     edges,
     opts,
   );
+  const sharedKey = `rowSource:${reqKey}`;
   try {
-    const pending = inFlightPlannerByKey.get(reqKey);
-    const sqlPromise =
-      pending ??
-      trySqlRowSourceForNode(
-        incomingEdge.source,
-        incomingEdge.sourceHandle ?? null,
-        nodes,
-        edges,
-        opts,
-      );
-    if (pending == null) {
-      inFlightPlannerByKey.set(reqKey, sqlPromise);
-    }
-    const sqlPlanned = await sqlPromise;
-    inFlightPlannerByKey.delete(reqKey);
+    const sqlPlanned = await executeShared(
+      sharedKey,
+      async () =>
+        trySqlRowSourceForNode(
+          incomingEdge.source,
+          incomingEdge.sourceHandle ?? null,
+          nodes,
+          edges,
+          opts,
+        ),
+      { cacheResolved: false },
+    );
     if (sqlPlanned != null) {
       if (TABULAR_DEBUG) {
         console.debug(
@@ -294,7 +281,6 @@ export async function getTabularOutputForEdgeAsync(
       return sqlPlanned;
     }
   } catch (error) {
-    inFlightPlannerByKey.delete(reqKey);
     logPlannerFallback(
       `edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
     );
@@ -340,31 +326,45 @@ export async function getTabularPayloadForEdgeAsync(
   visited: Set<string> = new Set(),
   opts?: ResolveOpts,
 ): Promise<CsvPayload | null> {
-  try {
-    const sqlPlanned = await trySqlRowSourceForNode(
-      incomingEdge.source,
-      incomingEdge.sourceHandle ?? null,
-      nodes,
-      edges,
-      opts,
-    );
-    if (sqlPlanned != null) {
-      return collectRowSourceToPayload(sqlPlanned);
-    }
-  } catch (error) {
-    logPlannerFallback(
-      `payload edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-  logPlannerFallback(`payload edge ${incomingEdge.id}: planner unsupported, using legacy path`);
-
-  const withCsv = await materializeDataSourcesForResolve(nodes);
-  return getTabularOutputWithHandle(
+  const reqKey = plannerRequestKey(
     incomingEdge.source,
     incomingEdge.sourceHandle ?? null,
-    withCsv,
+    nodes,
     edges,
-    visited,
+    opts,
+  );
+  const sharedKey = `payload:${reqKey}`;
+  return executeShared(
+    sharedKey,
+    async () => {
+      try {
+        const sqlPlanned = await trySqlRowSourceForNode(
+          incomingEdge.source,
+          incomingEdge.sourceHandle ?? null,
+          nodes,
+          edges,
+          opts,
+        );
+        if (sqlPlanned != null) {
+          return collectRowSourceToPayload(sqlPlanned);
+        }
+      } catch (error) {
+        logPlannerFallback(
+          `payload edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+        );
+      }
+      logPlannerFallback(`payload edge ${incomingEdge.id}: planner unsupported, using legacy path`);
+
+      const withCsv = await materializeDataSourcesForResolve(nodes);
+      return getTabularOutputWithHandle(
+        incomingEdge.source,
+        incomingEdge.sourceHandle ?? null,
+        withCsv,
+        edges,
+        visited,
+      );
+    },
+    { cacheResolved: false },
   );
 }
 
@@ -378,29 +378,43 @@ export async function getPreviewForEdgeAsync(
   limit: number,
 ): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
   const requested = Math.max(0, Math.floor(limit));
-  try {
-    const planned = await planSqlForEdge(incomingEdge, nodes, edges);
-    if (planned != null) {
-      const rows = await runPreviewQuery(planned, requested);
-      return { headers: planned.headers, rows };
-    }
-  } catch (error) {
-    logPlannerFallback(
-      `preview edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-  logPlannerFallback(`preview edge ${incomingEdge.id}: planner unsupported, using fallback`);
-  const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
-    limit: requested,
-    consumer: "visualization",
-  });
-  if (rs == null) return { headers: [], rows: [] };
-  const rows: Record<string, string>[] = [];
-  for await (const row of rs.rows()) {
-    rows.push(row);
-    if (rows.length >= requested) break;
-  }
-  return { headers: rs.headers, rows };
+  const reqKey = plannerRequestKey(
+    incomingEdge.source,
+    incomingEdge.sourceHandle ?? null,
+    nodes,
+    edges,
+    { limit: requested, consumer: "visualization-preview" },
+  );
+  const sharedKey = `preview:${reqKey}`;
+  return executeShared(
+    sharedKey,
+    async () => {
+      try {
+        const planned = await planSqlForEdge(incomingEdge, nodes, edges);
+        if (planned != null) {
+          const rows = await runPreviewQuery(planned, requested);
+          return { headers: planned.headers, rows };
+        }
+      } catch (error) {
+        logPlannerFallback(
+          `preview edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+        );
+      }
+      logPlannerFallback(`preview edge ${incomingEdge.id}: planner unsupported, using fallback`);
+      const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
+        limit: requested,
+        consumer: "visualization",
+      });
+      if (rs == null) return { headers: [], rows: [] };
+      const rows: Record<string, string>[] = [];
+      for await (const row of rs.rows()) {
+        rows.push(row);
+        if (rows.length >= requested) break;
+      }
+      return { headers: rs.headers, rows };
+    },
+    { cacheResolved: false },
+  );
 }
 
 export async function getRowCountForEdgeAsync(
@@ -409,28 +423,25 @@ export async function getRowCountForEdgeAsync(
   edges: Edge[],
 ): Promise<number | null> {
   const cacheKey = rowCountCacheKey(incomingEdge, nodes, edges);
-  const cached = rowCountCacheByKey.get(cacheKey);
-  if (cached != null) return cached;
-  try {
-    const planned = await planSqlForEdge(incomingEdge, nodes, edges);
-    if (planned != null) {
-      const count = await runCountQuery(planned);
-      cacheRowCount(cacheKey, count);
-      return count;
+  return executeShared(`rowCount:${cacheKey}`, async () => {
+    try {
+      const planned = await planSqlForEdge(incomingEdge, nodes, edges);
+      if (planned != null) {
+        const count = await runCountQuery(planned);
+        return count;
+      }
+    } catch (error) {
+      logPlannerFallback(
+        `count edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
+      );
     }
-  } catch (error) {
-    logPlannerFallback(
-      `count edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-  logPlannerFallback(`count edge ${incomingEdge.id}: planner unsupported, using fallback`);
-  const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
-    consumer: "rowCount",
+    logPlannerFallback(`count edge ${incomingEdge.id}: planner unsupported, using fallback`);
+    const rs = await getTabularOutputForEdgeAsync(incomingEdge, nodes, edges, new Set(), {
+      consumer: "rowCount",
+    });
+    if (rs == null) return null;
+    return rs.rowCount ?? (await countRowsInRowSource(rs));
   });
-  if (rs == null) return null;
-  const count = rs.rowCount ?? (await countRowsInRowSource(rs));
-  cacheRowCount(cacheKey, count);
-  return count;
 }
 
 export async function downloadCsvForEdgeAsync(
