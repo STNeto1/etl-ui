@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
-import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
+import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
 import type {
   AppNode,
@@ -16,8 +16,7 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
   const edges = useEdges();
 
   const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
-  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
-  const headers = useMemo(() => payload?.headers ?? [], [payload]);
+  const { headers, loading } = useTabularHeadersFromEdge(incomingEdge, nodes, edges);
   const branches = useMemo(() => data.branches ?? [], [data.branches]);
 
   const patchData = useCallback(
@@ -90,6 +89,13 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
           onPointerDownCapture={(event) => event.stopPropagation()}
         >
           Connect an upstream tabular node to configure branches.
+        </div>
+      ) : loading ? (
+        <div
+          className="nodrag nopan mt-1 rounded border border-dashed border-neutral-200 bg-neutral-50 px-2 py-2 text-[11px] text-neutral-500"
+          onPointerDownCapture={(event) => event.stopPropagation()}
+        >
+          Loading upstream schema…
         </div>
       ) : headers.length === 0 ? (
         <div
