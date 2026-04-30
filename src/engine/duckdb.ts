@@ -1,19 +1,26 @@
 import * as duckdb from "@duckdb/duckdb-wasm";
-import duckdbMvpWasm from "@duckdb/duckdb-wasm/dist/duckdb-mvp.wasm?url";
-import duckdbEhWasm from "@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url";
-import duckdbMvpWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-mvp.worker.js?url";
-import duckdbEhWorker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url";
 
-const BUNDLES: duckdb.DuckDBBundles = {
-  mvp: {
-    mainModule: duckdbMvpWasm,
-    mainWorker: duckdbMvpWorker,
-  },
-  eh: {
-    mainModule: duckdbEhWasm,
-    mainWorker: duckdbEhWorker,
-  },
-};
+function createWorker(bundle: duckdb.DuckDBBundle): {
+  worker: Worker;
+  cleanup: () => void;
+} {
+  if (import.meta.env.PROD) {
+    const workerUrl = URL.createObjectURL(
+      new Blob([`importScripts("${bundle.mainWorker!}");`], {
+        type: "text/javascript",
+      }),
+    );
+    return {
+      worker: new Worker(workerUrl),
+      cleanup: () => URL.revokeObjectURL(workerUrl),
+    };
+  }
+
+  return {
+    worker: new Worker(bundle.mainWorker!),
+    cleanup: () => {},
+  };
+}
 
 const RECOVERY_MESSAGE =
   "DuckDB failed to initialize in this browser tab. Reload the page and try again. If it keeps failing, clear site data for this origin.";
@@ -47,12 +54,16 @@ function formatError(value: unknown): string {
 }
 
 async function bootstrap(): Promise<duckdb.AsyncDuckDB> {
-  const bundle = await duckdb.selectBundle(BUNDLES);
-  const worker = new Worker(bundle.mainWorker!);
+  const bundles = import.meta.env.PROD
+    ? duckdb.getJsDelivrBundles()
+    : (await import("./duckdbLocalBundles")).getLocalBundles();
+  const bundle = await duckdb.selectBundle(bundles);
+  const { worker, cleanup } = createWorker(bundle);
   const logger = new duckdb.VoidLogger();
   const db = new duckdb.AsyncDuckDB(logger, worker);
   try {
     await db.instantiate(bundle.mainModule, bundle.pthreadWorker);
+    cleanup();
     await db.open({});
     const conn = await db.connect();
     try {
@@ -62,6 +73,7 @@ async function bootstrap(): Promise<duckdb.AsyncDuckDB> {
     }
     return db;
   } catch (error) {
+    cleanup();
     try {
       await db.terminate();
     } catch {
