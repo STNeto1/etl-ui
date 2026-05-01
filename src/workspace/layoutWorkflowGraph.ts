@@ -60,7 +60,7 @@ function layoutOneComponent(
   const g = new Graph({ multigraph: true })
     .setDefaultEdgeLabel(() => ({}))
     .setGraph({
-      rankdir: "LR",
+      rankdir: "TB",
       nodesep: NODESEP,
       ranksep: RANKSEP,
       marginx: 20,
@@ -100,8 +100,8 @@ function layoutOneComponent(
 }
 
 /**
- * Auto-layout workflow nodes (layered DAG, left-to-right). Disconnected subgraphs are laid out
- * separately and packed horizontally. Returns null if layout fails.
+ * Auto-layout workflow nodes (layered DAG, top-to-bottom). Disconnected subgraphs are laid out
+ * separately and packed in columns (side by side). Returns null if layout fails.
  */
 export function layoutWorkflowGraph(nodes: AppNode[], edges: Edge[]): AppNode[] | null {
   if (nodes.length === 0) return [];

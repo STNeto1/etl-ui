@@ -147,7 +147,7 @@ export function WorkspaceToolbar({
           <button
             type="button"
             className={btnClass}
-            title="Auto-arrange nodes by connections"
+            title="Auto-arrange nodes top-to-bottom by connections"
             onClick={onFormatWorkflow}
           >
             Format

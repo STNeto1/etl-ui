@@ -27,7 +27,7 @@ function filter(id: string, x = 0, y = 0): AppNode {
 }
 
 describe("layoutWorkflowGraph", () => {
-  it("lays out a simple chain left-to-right", () => {
+  it("lays out a simple chain top-to-bottom", () => {
     const a = source("n0");
     const b = filter("n1");
     const c = filter("n2");
@@ -42,11 +42,11 @@ describe("layoutWorkflowGraph", () => {
     const p0 = byId.get("n0")!.position;
     const p1 = byId.get("n1")!.position;
     const p2 = byId.get("n2")!.position;
-    expect(Number.isFinite(p0.x)).toBe(true);
-    expect(Number.isFinite(p1.x)).toBe(true);
-    expect(Number.isFinite(p2.x)).toBe(true);
-    expect(p0.x).toBeLessThan(p1.x);
-    expect(p1.x).toBeLessThan(p2.x);
+    expect(Number.isFinite(p0.y)).toBe(true);
+    expect(Number.isFinite(p1.y)).toBe(true);
+    expect(Number.isFinite(p2.y)).toBe(true);
+    expect(p0.y).toBeLessThan(p1.y);
+    expect(p1.y).toBeLessThan(p2.y);
   });
 
   it("packs two disconnected components horizontally with separation", () => {
