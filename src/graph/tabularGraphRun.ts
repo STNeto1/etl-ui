@@ -12,24 +12,26 @@ import {
   type PlannedSqlQuery,
 } from "./tabularSqlPlanner";
 
+type TabularExecutionDetail = {
+  backend: "sql";
+  phase: "compile" | "execute";
+  edgeId: string;
+  reason: "unsupported_op" | "planner_null" | "sql_execute_failed";
+};
+
 export class TabularExecutionError extends Error {
-  constructor(
-    message: string,
-    public readonly detail: {
-      backend: "sql";
-      phase: "compile" | "execute";
-      edgeId: string;
-      reason: "unsupported_op" | "planner_null" | "sql_execute_failed";
-    },
-  ) {
+  readonly detail: TabularExecutionDetail;
+
+  constructor(message: string, detail: TabularExecutionDetail) {
     super(message);
     this.name = "TabularExecutionError";
+    this.detail = detail;
   }
 }
 
 export type TabularGraphRun = {
   backend(): Promise<"sql">;
-  rowSource(): Promise<RowSource | null>;
+  rowSource(): Promise<RowSource>;
   payload(): Promise<CsvPayload | null>;
   preview(limit: number): Promise<{ headers: string[]; rows: Record<string, string>[] }>;
   rowCount(): Promise<number | null>;
@@ -54,33 +56,36 @@ export function createTabularGraphRunForEdge(
   let downloadPromise: Promise<Blob | null> | null = null;
 
   async function backend(): Promise<"sql"> {
-    backendPromise ??= (async () => {
-      try {
-        const chosen = await chooseTabularBackendForEdge(edge, nodes, edges);
-        if (chosen !== "sql") {
+    if (backendPromise == null) {
+      backendPromise = (async (): Promise<"sql"> => {
+        try {
+          const chosen = await chooseTabularBackendForEdge(edge, nodes, edges);
+          if (chosen !== "sql") {
+            throw new TabularExecutionError("Operation chain is not SQL-capable in strict mode", {
+              backend: "sql",
+              phase: "compile",
+              edgeId: edge.id,
+              reason: "unsupported_op",
+            });
+          }
+          return "sql";
+        } catch (error) {
+          if (error instanceof TabularExecutionError) throw error;
+          const message = error instanceof Error ? error.message : String(error);
+          const reason = message.includes("unsupported") ? "unsupported_op" : "planner_null";
           throw new TabularExecutionError("Operation chain is not SQL-capable in strict mode", {
             backend: "sql",
             phase: "compile",
             edgeId: edge.id,
-            reason: "unsupported_op",
+            reason,
           });
         }
-        return "sql";
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const reason = message.includes("unsupported") ? "unsupported_op" : "planner_null";
-        throw new TabularExecutionError("Operation chain is not SQL-capable in strict mode", {
-          backend: "sql",
-          phase: "compile",
-          edgeId: edge.id,
-          reason,
-        });
-      }
-    })();
+      })();
+    }
     return backendPromise;
   }
 
-  async function rowSource(): Promise<RowSource | null> {
+  async function rowSource(): Promise<RowSource> {
     await backend();
     sqlSourcePromise ??= trySqlRowSourceForNode(
       edge.source,
@@ -100,7 +105,7 @@ export function createTabularGraphRunForEdge(
     return rs;
   }
 
-  async function sqlPlan(): Promise<PlannedSqlQuery | null> {
+  async function sqlPlan(): Promise<PlannedSqlQuery> {
     sqlPlanPromise ??= planSqlForEdge(edge, nodes, edges);
     const planned = await sqlPlanPromise;
     if (planned == null) {

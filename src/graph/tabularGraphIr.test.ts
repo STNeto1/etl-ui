@@ -14,10 +14,10 @@ describe("tabularGraphIr", () => {
       node("src", "dataSource", {
         headers: ["a"],
         csv: { headers: ["a"], rows: [] },
-      } as AppNode["data"]),
-      node("flt", "filter", { rules: [], combineAll: true } as AppNode["data"]),
+      } as unknown as AppNode["data"]),
+      node("flt", "filter", { rules: [], combineAll: true } as unknown as AppNode["data"]),
       node("viz", "visualization", { label: "Viz", previewRows: 5 } as AppNode["data"]),
-      node("orphan", "computeColumn", { columns: [] } as AppNode["data"]),
+      node("orphan", "computeColumn", { columns: [] } as unknown as AppNode["data"]),
     ];
     const edges: Edge[] = [
       { id: "e1", source: "src", target: "flt" },
@@ -38,7 +38,7 @@ describe("tabularGraphIr", () => {
       node("src", "dataSource", {
         headers: ["a"],
         csv: { headers: ["a"], rows: [] },
-      } as AppNode["data"]),
+      } as unknown as AppNode["data"]),
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "viz" }];
     const a = compileTabularGraphIrForEdge(edges[0]!, nodes, edges);

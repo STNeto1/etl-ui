@@ -78,7 +78,7 @@ export async function getTabularOutputAsync(
   edges: Edge[],
   visited: Set<string> = new Set(),
   opts?: ResolveOpts,
-): Promise<RowSource | null> {
+): Promise<RowSource> {
   void visited;
   void opts;
   const synthetic: Edge = {
@@ -95,7 +95,7 @@ export async function getTabularOutputForEdgeAsync(
   edges: Edge[],
   visited: Set<string> = new Set(),
   opts?: ResolveOpts,
-): Promise<RowSource | null> {
+): Promise<RowSource> {
   void visited;
   const reqKey = plannerRequestKey(
     incomingEdge.source,

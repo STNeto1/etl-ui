@@ -13,7 +13,7 @@ describe("tabularGraphRun strict errors", () => {
         position: { x: 0, y: 0 },
         data: {
           label: "Unsupported",
-        } as AppNode["data"],
+        } as unknown as AppNode["data"],
       } as AppNode,
     ];
     const run = createTabularGraphRunForEdge(edge, nodes, [edge]);
@@ -40,7 +40,7 @@ describe("tabularGraphRun strict errors", () => {
         data: {
           label: "Source",
           csv: null,
-        } as AppNode["data"],
+        } as unknown as AppNode["data"],
       } as AppNode,
     ];
     const run = createTabularGraphRunForEdge(edge, nodes, [edge]);

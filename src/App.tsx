@@ -326,7 +326,7 @@ function FlowWorkspace() {
                 },
               }
             : n,
-        );
+        ) as AppNode[];
 
         resetHistory({ nodes: updatedNodes, edges: snap.edges });
         setNodes(updatedNodes);

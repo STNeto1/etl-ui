@@ -6,10 +6,23 @@ import * as path from "path";
 import * as os from "os";
 import type * as wasmDuckdb from "@duckdb/duckdb-wasm";
 
-class NodeDuckDBConnection {
-  constructor(private conn: duckdb.Connection) {}
+/** Arrow-like query result compatible with WASM `conn.query` consumers (tabularSqlPlanner, datasetStore). */
+type NodeDuckDbQueryTable = {
+  toArray: () => unknown[];
+  schema: { fields: Array<{ name: string }> };
+  numCols: number;
+  numRows: number;
+  getChildAt: (index: number) => { get: (row: number) => unknown } | null;
+};
 
-  async query(sql: string): Promise<wasmDuckdb.Table> {
+class NodeDuckDBConnection {
+  private readonly conn: duckdb.Connection;
+
+  constructor(conn: duckdb.Connection) {
+    this.conn = conn;
+  }
+
+  async query(sql: string): Promise<NodeDuckDbQueryTable> {
     return new Promise((resolve, reject) => {
       this.conn.all(sql, (err, rows) => {
         if (err) {
@@ -30,7 +43,7 @@ class NodeDuckDBConnection {
           },
         }));
 
-        const table = {
+        const table: NodeDuckDbQueryTable = {
           toArray: () => rows,
           schema: { fields },
           numCols,
@@ -39,7 +52,7 @@ class NodeDuckDBConnection {
             if (index < 0 || index >= columns.length) return null;
             return columns[index]!;
           },
-        } as unknown as wasmDuckdb.Table;
+        };
 
         resolve(table);
       });
