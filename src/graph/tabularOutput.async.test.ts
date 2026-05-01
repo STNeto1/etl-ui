@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
-import { resetAppDatasetStoreForTests } from "../dataset/appDatasetStore";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { defaultDataSourceData } from "../types/flow";
 import {
-  __clearTabularGraphRunSessionCacheForTests,
   collectRowSourceToPayload,
   downloadCsvForEdgeAsync,
   getPreviewForEdgeAsync,
@@ -16,46 +13,14 @@ import {
 import type { AppNode } from "../types/flow";
 import type { Edge } from "@xyflow/react";
 import * as graphRun from "./tabularGraphRun";
-
-const DATASET_DB = "etl-ui-datasets";
+import {
+  datasetBackedDataSourceNode,
+  resetTabularIntegrationFixtures,
+} from "./tabularPipelineTestKit";
 
 beforeEach(async () => {
-  resetAppDatasetStoreForTests();
-  __clearTabularGraphRunSessionCacheForTests();
-  Object.defineProperty(globalThis, "indexedDB", {
-    value: fakeIndexedDB,
-    configurable: true,
-    writable: true,
-  });
-  await new Promise<void>((resolve, reject) => {
-    const r = indexedDB.deleteDatabase(DATASET_DB);
-    r.onsuccess = () => resolve();
-    r.onerror = () => reject(r.error ?? new Error("delete dataset db"));
-    r.onblocked = () => resolve();
-  });
+  await resetTabularIntegrationFixtures();
 });
-
-async function datasetBackedDataSourceNode(
-  id: string,
-  csv: { headers: string[]; rows: Record<string, string>[] },
-): Promise<AppNode> {
-  const store = getAppDatasetStore();
-  const meta = await store.putNormalizedPayload(csv, "csv");
-  return {
-    id,
-    type: "dataSource",
-    position: { x: 0, y: 0 },
-    data: {
-      ...defaultDataSourceData(),
-      csv: null,
-      datasetId: meta.id,
-      format: "csv",
-      headers: meta.headers,
-      rowCount: meta.rowCount,
-      sample: meta.sample,
-    },
-  };
-}
 
 describe("getTabularOutputAsync", () => {
   it("returns output for inline strict node output path", async () => {

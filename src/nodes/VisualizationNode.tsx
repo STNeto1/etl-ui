@@ -264,9 +264,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 >
                   +
                 </button>
-                <span className="text-neutral-400">
-                  / {totalRows != null ? totalRows : "…"}
-                </span>
+                <span className="text-neutral-400">/ {totalRows != null ? totalRows : "…"}</span>
                 {isRefreshing && <span className="text-[10px] text-neutral-400">Refreshing…</span>}
                 {filterShrunk && rowsBeforeFilter != null && (
                   <span className="text-[10px] text-neutral-400">

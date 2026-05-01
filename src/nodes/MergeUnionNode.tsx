@@ -1,7 +1,11 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useMergeUnionUpstreamMeta } from "../graph/useMergeUnionUpstreamMeta";
-import type { AppNode, MergeUnionNode as MergeUnionNodeType, MergeUnionNodeData } from "../types/flow";
+import type {
+  AppNode,
+  MergeUnionNode as MergeUnionNodeType,
+  MergeUnionNodeData,
+} from "../types/flow";
 
 function truncateId(id: string, max = 10): string {
   if (id.length <= max) return id;
