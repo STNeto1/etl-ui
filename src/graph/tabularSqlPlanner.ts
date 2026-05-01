@@ -18,7 +18,7 @@ import type { RowSource } from "./rowSource";
 const SQL_CHUNK = 2000;
 const TEMPLATE_PLACEHOLDER = /\{\{([\s\S]*?)\}\}/g;
 const NUMERIC_LITERAL_CHARS = /^[-+*/()\d.\s]*$/;
-const PLANNER_DEBUG =
+const TABULAR_PERF =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 const PLANNER_WARNING_LOG_TTL_MS = 30_000;
 const plannerWarningLogSeenAt = new Map<string, number>();
@@ -314,18 +314,14 @@ function filterRuleSql(rule: FilterRule): string {
   }
 }
 
-async function planNode(
+async function planNodeInner(
+  node: AppNode,
   nodeId: string,
   viaSourceHandle: string | null,
   nodes: AppNode[],
   edges: Edge[],
   visited: Set<string>,
 ): Promise<Planned | null> {
-  const key = `${nodeId}::${viaSourceHandle ?? "node"}`;
-  if (visited.has(key)) return null;
-  visited.add(key);
-  const node = nodes.find((n) => n.id === nodeId);
-  if (node == null) return null;
   const store = getAppDatasetStore();
 
   switch (node.type) {
@@ -357,7 +353,7 @@ async function planNode(
     case "visualization": {
       const inEdge = singleIncoming(nodeId, edges);
       if (inEdge == null) return null;
-      return planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      return await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
     }
     case "filter": {
       const inEdge = singleIncoming(nodeId, edges);
@@ -937,7 +933,7 @@ async function planNode(
     case "download": {
       const inEdge = singleIncoming(nodeId, edges);
       if (inEdge == null) return null;
-      return planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      return await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
     }
     case "mergeUnion": {
       const inEdges = incoming(nodeId, edges);
@@ -1002,6 +998,32 @@ async function planNode(
   }
 }
 
+async function planNode(
+  nodeId: string,
+  viaSourceHandle: string | null,
+  nodes: AppNode[],
+  edges: Edge[],
+  visited: Set<string>,
+): Promise<Planned | null> {
+  const key = `${nodeId}::${viaSourceHandle ?? "node"}`;
+  if (visited.has(key)) return null;
+  visited.add(key);
+  const node = nodes.find((n) => n.id === nodeId);
+  if (node == null) return null;
+  const t0 = performance.now();
+  let result: Planned | null = null;
+  try {
+    result = await planNodeInner(node, nodeId, viaSourceHandle, nodes, edges, visited);
+    return result;
+  } finally {
+    if (TABULAR_PERF) {
+      console.debug(
+        `[tabular-perf] phase=plan node=${nodeId} type=${node.type} ok=${result != null} subtreeMs=${(performance.now() - t0).toFixed(1)}`,
+      );
+    }
+  }
+}
+
 function tableRows(table: unknown, headers: string[]): Record<string, string>[] {
   const t = table as {
     numRows: number;
@@ -1032,20 +1054,9 @@ export async function trySqlRowSourceForNode(
   opts?: { limit?: number; signal?: AbortSignal; consumer?: string },
 ): Promise<RowSource | null> {
   if (opts?.signal?.aborted) return null;
-  const planStart = performance.now();
   const planned = await planNode(nodeId, viaSourceHandle, nodes, edges, new Set());
   if (planned == null) {
-    if (PLANNER_DEBUG) {
-      console.debug(
-        `[duckdb-planner] node=${nodeId} planned=false ms=${(performance.now() - planStart).toFixed(1)}`,
-      );
-    }
     return null;
-  }
-  if (PLANNER_DEBUG) {
-    console.debug(
-      `[duckdb-planner] node=${nodeId} planned=true headers=${planned.headers.length} ms=${(performance.now() - planStart).toFixed(1)}`,
-    );
   }
   const db = await getDuckDb();
   const headers = planned.headers;
@@ -1079,17 +1090,11 @@ export async function trySqlRowSourceForNode(
           if (remaining <= 0) break;
           const batchSize = Math.min(SQL_CHUNK, remaining);
           const sql = `SELECT ${selectAll(headers)} FROM (${plannedSql}) LIMIT ${batchSize} OFFSET ${offset}`;
-          const batchStart = performance.now();
           const table = await conn.query(sql);
           if (opts?.signal?.aborted) break;
           const rows = tableRows(table, headers);
           if (rows.length === 0) break;
           yielded += rows.length;
-          if (PLANNER_DEBUG) {
-            console.debug(
-              `[duckdb-planner] node=${nodeId} batchOffset=${offset} rows=${rows.length} ms=${(performance.now() - batchStart).toFixed(1)}`,
-            );
-          }
           for (const row of rows) {
             if (opts?.signal?.aborted) break;
             yield row;
@@ -1103,9 +1108,13 @@ export async function trySqlRowSourceForNode(
         for (const fn of cleanup) {
           await fn().catch(() => undefined);
         }
-        if (PLANNER_DEBUG) {
+        if (TABULAR_PERF) {
+          const bits: string[] = [];
+          if (opts?.consumer != null) bits.push(`consumer=${opts.consumer}`);
+          if (opts?.limit != null) bits.push(`limit=${opts.limit}`);
+          const extra = bits.length > 0 ? ` ${bits.join(" ")}` : "";
           console.debug(
-            `[duckdb-planner] node=${nodeId} streamRows=${yielded} totalMs=${(performance.now() - streamStart).toFixed(1)}`,
+            `[tabular-perf] phase=stream node=${nodeId} rows=${yielded} ms=${(performance.now() - streamStart).toFixed(1)}${extra}`,
           );
         }
       }
@@ -1137,12 +1146,21 @@ export async function runPreviewQuery(
   const conn = await db.connect();
   const n = Math.max(0, Math.floor(limit));
   const sql = `SELECT ${selectAll(planned.headers)} FROM (${planned.sql}) LIMIT ${n}`;
+  const t0 = performance.now();
+  let returnedRows = 0;
   try {
     const table = await conn.query(sql);
-    return tableRows(table, planned.headers);
+    const rows = tableRows(table, planned.headers);
+    returnedRows = rows.length;
+    return rows;
   } finally {
     await conn.close();
     await closePlannedCleanup(planned.cleanup);
+    if (TABULAR_PERF) {
+      console.debug(
+        `[tabular-perf] phase=preview limit=${n} cols=${planned.headers.length} rows=${returnedRows} ms=${(performance.now() - t0).toFixed(1)}`,
+      );
+    }
   }
 }
 
@@ -1151,15 +1169,23 @@ export async function runCountQuery(planned: PlannedSqlQuery): Promise<number> {
   const conn = await db.connect();
   const countAlias = "row_count";
   const sql = `SELECT COUNT(*) AS ${quoteSqlIdent(countAlias)} FROM (${planned.sql})`;
+  const t0 = performance.now();
+  let total = 0;
   try {
     const table = await conn.query(sql);
     const rows = tableRows(table, [countAlias]);
     const raw = rows[0]?.[countAlias] ?? "0";
     const n = Number(raw);
-    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    total = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    return total;
   } finally {
     await conn.close();
     await closePlannedCleanup(planned.cleanup);
+    if (TABULAR_PERF) {
+      console.debug(
+        `[tabular-perf] phase=count cols=${planned.headers.length} total=${total} ms=${(performance.now() - t0).toFixed(1)}`,
+      );
+    }
   }
 }
 
@@ -1167,15 +1193,23 @@ export async function runCopyToCsvBuffer(planned: PlannedSqlQuery): Promise<Uint
   const db = await getDuckDb();
   const conn = await db.connect();
   const outName = `export-${crypto.randomUUID()}.csv`;
-
+  const t0 = performance.now();
+  let byteLength = 0;
   try {
     // Use relative path for COPY output - DuckDB will write to its working directory
     await conn.query(`COPY (${planned.sql}) TO ${quoteSqlString(outName)} (FORMAT CSV, HEADER)`);
-    return await db.copyFileToBuffer(outName);
+    const buf = await db.copyFileToBuffer(outName);
+    byteLength = buf.byteLength;
+    return buf;
   } finally {
     await conn.close();
     await db.dropFile(outName).catch(() => undefined);
     await closePlannedCleanup(planned.cleanup);
+    if (TABULAR_PERF) {
+      console.debug(
+        `[tabular-perf] phase=csv cols=${planned.headers.length} bytes=${byteLength} ms=${(performance.now() - t0).toFixed(1)}`,
+      );
+    }
   }
 }
 

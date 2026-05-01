@@ -7,7 +7,7 @@ type CacheEntry<T> = {
 const DEFAULT_TTL_MS = 90_000;
 const DEFAULT_MAX_ENTRIES = 256;
 const DEBUG_STATS_LOG_INTERVAL_MS = 10_000;
-const SHARED_CACHE_DEBUG =
+const TABULAR_PERF_CACHE =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 
 const resolvedCache = new Map<string, CacheEntry<unknown>>();
@@ -120,12 +120,12 @@ export function resetSharedExecutionCacheStats(): void {
 }
 
 export function maybeLogSharedExecutionCacheStats(reason: string): void {
-  if (!SHARED_CACHE_DEBUG) return;
+  if (!TABULAR_PERF_CACHE) return;
   const now = Date.now();
   if (now - lastDebugStatsLogAt < DEBUG_STATS_LOG_INTERVAL_MS) return;
   lastDebugStatsLogAt = now;
   const snapshot = getSharedExecutionCacheStats();
   console.debug(
-    `[tabular-cache] reason=${reason} resolvedHit=${snapshot.resolvedHit} resolvedMiss=${snapshot.resolvedMiss} inflightReuse=${snapshot.inflightReuse} evictedExpired=${snapshot.evictedExpired} evictedLru=${snapshot.evictedLru}`,
+    `[tabular-perf] phase=cache reason=${reason} resolvedHit=${snapshot.resolvedHit} resolvedMiss=${snapshot.resolvedMiss} inflightReuse=${snapshot.inflightReuse} evictedExpired=${snapshot.evictedExpired} evictedLru=${snapshot.evictedLru}`,
   );
 }
