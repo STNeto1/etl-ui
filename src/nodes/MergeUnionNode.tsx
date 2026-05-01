@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { getTabularPayloadForEdgeAsync } from "../graph/tabularOutput";
-import type {
-  AppNode,
-  CsvPayload,
-  MergeUnionNode as MergeUnionNodeType,
-  MergeUnionNodeData,
-} from "../types/flow";
+import { useMergeUnionUpstreamMeta } from "../graph/useMergeUnionUpstreamMeta";
+import type { AppNode, MergeUnionNode as MergeUnionNodeType, MergeUnionNodeData } from "../types/flow";
+
+function truncateId(id: string, max = 10): string {
+  if (id.length <= max) return id;
+  return `${id.slice(0, max)}…`;
+}
 
 export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
   const { setNodes } = useReactFlow();
@@ -14,43 +14,28 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
   const edges = useEdges();
 
   const incoming = useMemo(() => edges.filter((e) => e.target === id), [edges, id]);
-
-  const [upstreamPayloads, setUpstreamPayloads] = useState<
-    { sourceId: string; payload: CsvPayload | null }[]
-  >([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const pairs = await Promise.all(
-        incoming.map(async (edge) => ({
-          sourceId: edge.source,
-          payload: await getTabularPayloadForEdgeAsync(edge, nodes, edges).catch(() => null),
-        })),
-      );
-      if (!cancelled) setUpstreamPayloads(pairs);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [incoming, nodes, edges]);
+  const { inputs: upstreamInputs, loading: upstreamLoading } = useMergeUnionUpstreamMeta(
+    incoming,
+    nodes,
+    edges,
+  );
 
   const availableHeaders = useMemo(() => {
     const seen = new Set<string>();
     const ordered: string[] = [];
-    for (const item of upstreamPayloads) {
-      if (item.payload == null) continue;
-      for (const header of item.payload.headers) {
+    for (const item of upstreamInputs) {
+      if (!item.resolved) continue;
+      for (const header of item.headers) {
         if (seen.has(header)) continue;
         seen.add(header);
         ordered.push(header);
       }
     }
     return ordered;
-  }, [upstreamPayloads]);
+  }, [upstreamInputs]);
 
   const connectedInputs = incoming.length;
-  const resolvedInputs = upstreamPayloads.filter((item) => item.payload != null).length;
+  const resolvedInputs = upstreamInputs.filter((item) => item.resolved).length;
   const dedupeMode = data.dedupeMode ?? "fullRow";
   const dedupeEnabled = data.dedupeEnabled ?? false;
   const dedupeKeys = useMemo(() => data.dedupeKeys ?? [], [data.dedupeKeys]);
@@ -91,8 +76,8 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
         Merge / Union
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Appends all connected upstream tabular paths. Headers are unioned and missing values are
-        filled with empty strings.
+        Appends connected upstream tabular paths. Headers are unioned and missing values are filled
+        with empty strings. Schema and row counts load without materializing full tables.
       </p>
 
       <div
@@ -105,12 +90,35 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
         </div>
         <div className="mt-1 flex items-center justify-between text-neutral-700">
           <span>Resolved inputs</span>
-          <span className="font-medium">{resolvedInputs}</span>
+          <span className="font-medium">{upstreamLoading ? "…" : resolvedInputs}</span>
         </div>
         <div className="mt-1 flex items-center justify-between text-neutral-700">
           <span>Merged columns</span>
           <span className="font-medium">{availableHeaders.length}</span>
         </div>
+        {upstreamInputs.length > 0 && (
+          <ul className="mt-2 space-y-1 border-t border-neutral-200 pt-2 text-[10px] text-neutral-600">
+            {upstreamInputs.map((item) => (
+              <li key={item.edgeId} className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                <span className="font-mono text-neutral-700" title={item.sourceId}>
+                  {truncateId(item.sourceId)}
+                </span>
+                <span className="text-neutral-500">
+                  {!item.resolved
+                    ? "unavailable"
+                    : item.rowCount != null
+                      ? `${item.rowCount.toLocaleString()} rows · ${item.headers.length} cols`
+                      : `${item.headers.length} cols · count …`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {upstreamLoading && upstreamInputs.length === 0 && connectedInputs > 0 && (
+          <p className="mt-2 border-t border-neutral-200 pt-2 text-[10px] text-neutral-500">
+            Loading upstream schema and counts…
+          </p>
+        )}
       </div>
 
       <div
@@ -146,7 +154,7 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
             <div className="text-[11px] font-medium text-neutral-700">Key columns</div>
             {availableHeaders.length === 0 ? (
               <p className="mt-1 text-[10px] text-neutral-500">
-                Connect upstream data to choose key columns.
+                Connect upstream data and wait for schema to choose key columns.
               </p>
             ) : (
               <div className="mt-1 max-h-24 overflow-auto rounded border border-neutral-200 bg-neutral-50 p-1.5">

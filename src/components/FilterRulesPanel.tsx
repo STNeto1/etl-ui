@@ -8,6 +8,8 @@ type FilterRulesPanelProps = {
   rules: FilterRule[];
   onCombineAllChange: (combineAll: boolean) => void;
   onRulesChange: (rules: FilterRule[]) => void;
+  /** Flush debounced rule commits (e.g. parent persists pending value edits). */
+  onCommitPendingRules?: () => void;
 };
 
 function newRule(headers: string[]): FilterRule {
@@ -25,6 +27,7 @@ export function FilterRulesPanel({
   rules,
   onCombineAllChange,
   onRulesChange,
+  onCommitPendingRules,
 }: FilterRulesPanelProps) {
   if (headers.length === 0) return null;
 
@@ -158,6 +161,11 @@ export function FilterRulesPanel({
                   type="text"
                   value={rule.value}
                   onChange={(e) => updateRule(rule.id, { value: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      onCommitPendingRules?.();
+                    }
+                  }}
                   placeholder="Value"
                   className="min-w-[60px] flex-1 rounded border border-neutral-300 bg-white px-1 py-0.5 text-[10px] text-neutral-900"
                 />

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { tryUpstreamHeadersForIncomingEdge } from "../graph/upstreamHeaders";
@@ -8,15 +8,35 @@ import type {
   AppNode,
   ConditionalNode as ConditionalNodeType,
   ConditionalNodeData,
+  FilterRule,
 } from "../types/flow";
+
+const RULES_COMMIT_DEBOUNCE_MS = 320;
+
+function isValueOnlyRulesChange(prev: FilterRule[], next: FilterRule[]): boolean {
+  if (prev.length !== next.length) return false;
+  const prevById = new Map(prev.map((r) => [r.id, r]));
+  for (const r of next) {
+    const p = prevById.get(r.id);
+    if (p == null) return false;
+    if (p.column !== r.column || p.op !== r.op) return false;
+  }
+  return true;
+}
 
 export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
   const { setNodes } = useReactFlow();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
-  const rules = useMemo(() => data.rules ?? [], [data.rules]);
+  const rulesFromParent = useMemo(() => data.rules ?? [], [data.rules]);
   const combineAll = data.combineAll ?? true;
+
+  const dataRulesKey = useMemo(() => JSON.stringify(rulesFromParent), [rulesFromParent]);
+  const [draftRules, setDraftRules] = useState<FilterRule[]>(rulesFromParent);
+  const draftRulesRef = useRef(draftRules);
+  draftRulesRef.current = draftRules;
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const incomingEdge = useMemo(() => edges.find((e) => e.target === id) ?? null, [edges, id]);
   const { headers: fetchedHeaders } = useTabularHeadersFromEdge(incomingEdge, nodes, edges);
@@ -40,6 +60,44 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
     [id, setNodes],
   );
 
+  const clearRulesDebounce = useCallback(() => {
+    if (debounceTimerRef.current != null) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    clearRulesDebounce();
+    setDraftRules(rulesFromParent);
+  }, [dataRulesKey, clearRulesDebounce, rulesFromParent]);
+
+  const flushPendingRules = useCallback(() => {
+    clearRulesDebounce();
+    patchData({ rules: draftRulesRef.current });
+  }, [clearRulesDebounce, patchData]);
+
+  const onRulesChange = useCallback(
+    (next: FilterRule[]) => {
+      const prev = draftRulesRef.current;
+      draftRulesRef.current = next;
+      setDraftRules(next);
+      if (!isValueOnlyRulesChange(prev, next)) {
+        clearRulesDebounce();
+        patchData({ rules: next });
+        return;
+      }
+      clearRulesDebounce();
+      debounceTimerRef.current = setTimeout(() => {
+        debounceTimerRef.current = null;
+        patchData({ rules: next });
+      }, RULES_COMMIT_DEBOUNCE_MS);
+    },
+    [clearRulesDebounce, patchData],
+  );
+
+  useEffect(() => () => clearRulesDebounce(), [clearRulesDebounce]);
+
   return (
     <div className="min-w-[300px] max-w-[430px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
@@ -59,13 +117,23 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
           Connect an upstream tabular node to configure conditions.
         </div>
       ) : (
-        <FilterRulesPanel
-          headers={headers}
-          combineAll={combineAll}
-          rules={rules}
-          onCombineAllChange={(next) => patchData({ combineAll: next })}
-          onRulesChange={(next) => patchData({ rules: next })}
-        />
+        <div
+          className="nodrag nopan mt-1"
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              flushPendingRules();
+            }
+          }}
+        >
+          <FilterRulesPanel
+            headers={headers}
+            combineAll={combineAll}
+            rules={draftRules}
+            onCombineAllChange={(next) => patchData({ combineAll: next })}
+            onRulesChange={onRulesChange}
+            onCommitPendingRules={flushPendingRules}
+          />
+        </div>
       )}
 
       <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-neutral-500">

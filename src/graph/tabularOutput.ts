@@ -11,7 +11,7 @@ import { executeShared, maybeLogSharedExecutionCacheStats } from "./tabularExecu
 import { createSemaphore } from "./asyncSemaphore";
 import { createTabularGraphRunForEdge } from "./tabularGraphRun";
 
-const rowCountLane = createSemaphore(1);
+const rowCountLane = createSemaphore(3);
 type ResolveOpts = { limit?: number; signal?: AbortSignal; consumer?: string };
 
 const GRAPH_RUN_CACHE_TTL_MS = 20_000;

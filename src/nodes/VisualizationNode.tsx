@@ -60,6 +60,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     const requestSeq = requestSeqRef.current + 1;
     requestSeqRef.current = requestSeq;
     let cancelled = false;
+    const deferRef: { id: number | undefined; idle: boolean } = { id: undefined, idle: false };
     const preservePreviousReady = hasReadyResolutionRef.current;
     void (async () => {
       try {
@@ -104,11 +105,27 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         });
         setIsRefreshing(false);
 
-        const totalRowsResolved = await getRowCountForEdgeAsync(edge, nodes, edges);
         if (cancelled || requestSeq !== requestSeqRef.current) return;
-        setResolution((prev) =>
-          prev.kind === "ready" ? { ...prev, totalRows: totalRowsResolved } : prev,
-        );
+
+        const runRowCount = (): void => {
+          void getRowCountForEdgeAsync(edge, nodes, edges)
+            .then((totalRowsResolved) => {
+              if (cancelled || requestSeq !== requestSeqRef.current) return;
+              setResolution((prev) =>
+                prev.kind === "ready" ? { ...prev, totalRows: totalRowsResolved } : prev,
+              );
+            })
+            .catch(() => {
+              /* leave totalRows null */
+            });
+        };
+
+        if (typeof requestIdleCallback !== "undefined") {
+          deferRef.idle = true;
+          deferRef.id = requestIdleCallback(runRowCount, { timeout: 2500 });
+        } else {
+          deferRef.id = window.setTimeout(runRowCount, 50);
+        }
       } catch {
         if (!cancelled && requestSeq === requestSeqRef.current) {
           setIsRefreshing(false);
@@ -118,6 +135,13 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     })();
     return () => {
       cancelled = true;
+      if (deferRef.id != null) {
+        if (deferRef.idle && typeof cancelIdleCallback !== "undefined") {
+          cancelIdleCallback(deferRef.id);
+        } else {
+          window.clearTimeout(deferRef.id);
+        }
+      }
       if (requestSeq === requestSeqRef.current) {
         setIsRefreshing(false);
       }
@@ -240,7 +264,9 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 >
                   +
                 </button>
-                <span className="text-neutral-400">/ {totalRows ?? `${MAX_PREVIEW_ROWS}+`}</span>
+                <span className="text-neutral-400">
+                  / {totalRows != null ? totalRows : "…"}
+                </span>
                 {isRefreshing && <span className="text-[10px] text-neutral-400">Refreshing…</span>}
                 {filterShrunk && rowsBeforeFilter != null && (
                   <span className="text-[10px] text-neutral-400">
