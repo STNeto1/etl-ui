@@ -17,7 +17,7 @@ type WorkspaceToolbarProps = {
   workspaceTemplates: readonly WorkspaceTemplateMeta[];
   selectedTemplateId: WorkspaceTemplateId;
   onSelectedTemplateIdChange: (id: WorkspaceTemplateId) => void;
-  onLoadWorkspaceTemplate: () => void;
+  onLoadWorkspaceTemplate: () => Promise<void>;
   resetSourceToo: boolean;
   onResetSourceTooChange: (value: boolean) => void;
   onResetGraph: () => void;
@@ -160,7 +160,7 @@ export function WorkspaceToolbar({
             ))}
           </select>
         </label>
-        <button type="button" className={btnClass} onClick={onLoadWorkspaceTemplate}>
+        <button type="button" className={btnClass} onClick={() => void onLoadWorkspaceTemplate()}>
           Load template
         </button>
         <label className="flex cursor-pointer items-center gap-1.5 rounded border border-neutral-300 bg-white/95 px-2 py-1 text-[11px] text-neutral-800 shadow-sm">

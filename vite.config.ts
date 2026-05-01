@@ -11,6 +11,8 @@ export default defineConfig({
   },
   plugins: [tailwindcss(), react(), babel({ presets: [reactCompilerPreset()] })],
   test: {
-    environment: "happy-dom",
+    environment: "jsdom",
+    setupFiles: ["./vitest.setup.ts"],
+    testTimeout: 10000,
   },
 });

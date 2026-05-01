@@ -297,11 +297,53 @@ function FlowWorkspace() {
     downloadWorkspaceJson(nodes, edges, buildWorkspaceExportFilename(name));
   }, [workspaceIndex, workspaceId, nodes, edges]);
 
-  const handleLoadWorkspaceTemplate = useCallback(() => {
+  const handleLoadWorkspaceTemplate = useCallback(async () => {
     const snap = getWorkspaceTemplateSnapshot(selectedTemplateId);
-    resetHistory({ nodes: snap.nodes, edges: snap.edges });
-    setNodes(snap.nodes);
-    setEdges(snap.edges);
+
+    // Persist template data source CSV to dataset store
+    const dataSourceNode = snap.nodes.find((n) => n.type === "dataSource");
+    if (dataSourceNode?.data?.csv != null) {
+      try {
+        const store = getAppDatasetStore();
+        const meta = await store.putNormalizedPayload(
+          dataSourceNode.data.csv,
+          dataSourceNode.data.format ?? "csv",
+        );
+
+        // Update the data source node with datasetId
+        const updatedNodes = snap.nodes.map((n) =>
+          n.id === dataSourceNode.id
+            ? {
+                ...n,
+                data: {
+                  ...n.data,
+                  csv: null, // Clear inline CSV
+                  datasetId: meta.id,
+                  format: meta.format,
+                  headers: meta.headers,
+                  rowCount: meta.rowCount,
+                  sample: meta.sample,
+                },
+              }
+            : n,
+        );
+
+        resetHistory({ nodes: updatedNodes, edges: snap.edges });
+        setNodes(updatedNodes);
+        setEdges(snap.edges);
+      } catch (err) {
+        console.error("Failed to load template data:", err);
+        // Fall back to original behavior with inline CSV
+        resetHistory({ nodes: snap.nodes, edges: snap.edges });
+        setNodes(snap.nodes);
+        setEdges(snap.edges);
+      }
+    } else {
+      resetHistory({ nodes: snap.nodes, edges: snap.edges });
+      setNodes(snap.nodes);
+      setEdges(snap.edges);
+    }
+
     queueMicrotask(() => {
       fitView({ duration: 200 });
     });

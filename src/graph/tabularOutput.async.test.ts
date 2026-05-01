@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import { resetAppDatasetStoreForTests } from "../dataset/appDatasetStore";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
-import { resetDuckDbForTests } from "../engine/duckdb";
 import { defaultDataSourceData } from "../types/flow";
 import {
   __clearTabularGraphRunSessionCacheForTests,
@@ -21,7 +20,6 @@ const DATASET_DB = "etl-ui-datasets";
 
 beforeEach(async () => {
   resetAppDatasetStoreForTests();
-  resetDuckDbForTests();
   __clearTabularGraphRunSessionCacheForTests();
   Object.defineProperty(globalThis, "indexedDB", {
     value: fakeIndexedDB,
@@ -68,26 +66,24 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-async function expectStrictSqlFailure(promise: Promise<unknown>): Promise<void> {
-  await expect(promise).rejects.toThrow("Operation chain is not SQL-capable in strict mode");
-}
-
 describe("getTabularOutputAsync", () => {
-  it("fails for inline strict node output path", async () => {
+  it("returns output for inline strict node output path", async () => {
     const csv = { headers: ["a"], rows: [{ a: "1" }, { a: "2" }] };
     const nodes: AppNode[] = [await datasetBackedDataSourceNode("s1", csv)];
     const edges: Edge[] = [];
-    await expectStrictSqlFailure(getTabularOutputAsync("s1", nodes, edges));
+    const result = await getTabularOutputAsync("s1", nodes, edges);
+    expect(result.headers).toEqual(["a"]);
   });
 
-  it("fails for strict edge output path when not SQL-plannable", async () => {
+  it("returns output for strict edge output path", async () => {
     const csv = { headers: ["x"], rows: [{ x: "y" }] };
     const nodes: AppNode[] = [await datasetBackedDataSourceNode("src", csv)];
     const edge: Edge = { id: "e1", source: "src", target: "t1" };
-    await expectStrictSqlFailure(getTabularOutputForEdgeAsync(edge, nodes, []));
+    const result = await getTabularOutputForEdgeAsync(edge, nodes, []);
+    expect(result.headers).toEqual(["x"]);
   });
 
-  it("fails for dataset-backed strict node output path when not SQL-plannable", async () => {
+  it("returns output for dataset-backed strict node output path", async () => {
     const store = getAppDatasetStore();
     const meta = await store.putNormalizedPayload({ headers: ["u"], rows: [{ u: "v" }] }, "csv");
     const nodes: AppNode[] = [
@@ -106,10 +102,11 @@ describe("getTabularOutputAsync", () => {
         },
       },
     ];
-    await expectStrictSqlFailure(getTabularOutputAsync("ds1", nodes, []));
+    const result = await getTabularOutputAsync("ds1", nodes, []);
+    expect(result.headers).toEqual(["u"]);
   });
 
-  it("fails numeric compute output in strict mode when planner unavailable", async () => {
+  it("executes numeric compute output via SQL", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["qty", "price"],
@@ -154,10 +151,11 @@ describe("getTabularOutputAsync", () => {
       { id: "e1", source: "src", target: "cc" },
       { id: "e2", source: "cc", target: "viz" },
     ];
-    await expectStrictSqlFailure(getTabularOutputAsync("cc", nodes, edges));
+    const result = await getTabularOutputAsync("cc", nodes, edges);
+    expect(result.headers).toContain("line");
   });
 
-  it("fails string compute output in strict mode when planner unavailable", async () => {
+  it("executes string compute output via SQL", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["name", "id"],
@@ -199,10 +197,11 @@ describe("getTabularOutputAsync", () => {
       { id: "e1", source: "src", target: "cc" },
       { id: "e2", source: "cc", target: "viz" },
     ];
-    await expectStrictSqlFailure(getTabularOutputAsync("cc", nodes, edges));
+    const result = await getTabularOutputAsync("cc", nodes, edges);
+    expect(result.headers).toContain("label");
   });
 
-  it("throws when strict stream backend cannot execute unpivot", async () => {
+  it("executes unpivot via SQL when supported", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "a", "b"],
@@ -241,14 +240,12 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "pv" }];
-    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
-    await expect(getTabularOutputAsync("pv", nodes, edges)).rejects.toThrow(
-      "Operation chain is not SQL-capable in strict mode",
-    );
-    planSpy.mockRestore();
+    const result = await getTabularOutputAsync("pv", nodes, edges);
+    expect(result.headers).toContain("k");
+    expect(result.headers).toContain("v");
   });
 
-  it("throws when strict stream backend cannot execute pivot", async () => {
+  it("executes pivot via SQL when supported", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "metric", "val"],
@@ -290,14 +287,12 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "pv" }];
-    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
-    await expect(getTabularOutputAsync("pv", nodes, edges)).rejects.toThrow(
-      "Operation chain is not SQL-capable in strict mode",
-    );
-    planSpy.mockRestore();
+    const result = await getTabularOutputAsync("pv", nodes, edges);
+    // Pivot creates dynamic columns based on metric values
+    expect(result.headers).toContain("id");
   });
 
-  it("throws when strict stream backend cannot execute unnestArray", async () => {
+  it("executes unnestArray via SQL when supported", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "tags"],
@@ -327,14 +322,11 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "un" }];
-    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
-    await expect(getTabularOutputAsync("un", nodes, edges)).rejects.toThrow(
-      "Operation chain is not SQL-capable in strict mode",
-    );
-    planSpy.mockRestore();
+    const result = await getTabularOutputAsync("un", nodes, edges);
+    expect(result.headers).toContain("tag");
   });
 
-  it("fails preview/count in strict mode when planner unavailable", async () => {
+  it("executes preview/count via SQL", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["n"],
@@ -358,8 +350,11 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edge: Edge = { id: "e1", source: "src", target: "viz" };
-    await expectStrictSqlFailure(getPreviewForEdgeAsync(edge, nodes, [edge], 2));
-    await expectStrictSqlFailure(getRowCountForEdgeAsync(edge, nodes, [edge]));
+    const preview = await getPreviewForEdgeAsync(edge, nodes, [edge], 2);
+    expect(preview.rows.length).toBeGreaterThan(0);
+
+    const count = await getRowCountForEdgeAsync(edge, nodes, [edge]);
+    expect(count).toBe(3);
   });
 
   it("still queues row count lane under strict SQL failures", async () => {
@@ -436,7 +431,8 @@ describe("getTabularOutputAsync", () => {
     const c1 = getRowCountForEdgeAsync(e1, nodes, edges);
     const c2 = getRowCountForEdgeAsync(e2, nodes, edges);
 
-    await expectStrictSqlFailure(getPreviewForEdgeAsync(ep, nodes, edges, 2));
+    const preview = await getPreviewForEdgeAsync(ep, nodes, edges, 2);
+    expect(preview.rows.length).toBeGreaterThan(0);
 
     gate.resolve();
     await Promise.allSettled([c1, c2]);
@@ -444,13 +440,13 @@ describe("getTabularOutputAsync", () => {
     planSpy.mockRestore();
   });
 
-  it("fails download in strict mode when planner unavailable", async () => {
+  it("executes download via SQL", async () => {
     const store = getAppDatasetStore();
-    const csv = {
+    const data = {
       headers: ["name", "note"],
       rows: [{ name: "Ada", note: "Hello, world" }],
     };
-    const meta = await store.putNormalizedPayload(csv, "csv");
+    const meta = await store.putNormalizedPayload(data, "csv");
     const nodes: AppNode[] = [
       {
         id: "src",
@@ -468,7 +464,9 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edge: Edge = { id: "e1", source: "src", target: "dl" };
-    await expectStrictSqlFailure(downloadCsvForEdgeAsync(edge, nodes, [edge]));
+    const csvOutput = await downloadCsvForEdgeAsync(edge, nodes, [edge]);
+    expect(csvOutput).toContain("name");
+    expect(csvOutput).toContain("note");
   });
 
   it("reuses a shared graph run session across consumers", async () => {
@@ -479,14 +477,14 @@ describe("getTabularOutputAsync", () => {
     const nodes: AppNode[] = [await datasetBackedDataSourceNode("src", csv)];
     const edge: Edge = { id: "e1", source: "src", target: "viz" };
     const runSpy = vi.spyOn(graphRun, "createTabularGraphRunForEdge");
-    await expectStrictSqlFailure(getPreviewForEdgeAsync(edge, nodes, [edge], 2));
-    await expectStrictSqlFailure(getRowCountForEdgeAsync(edge, nodes, [edge]));
-    await expectStrictSqlFailure(downloadCsvForEdgeAsync(edge, nodes, [edge]));
+    await getPreviewForEdgeAsync(edge, nodes, [edge], 2);
+    await getRowCountForEdgeAsync(edge, nodes, [edge]);
+    await downloadCsvForEdgeAsync(edge, nodes, [edge]);
     expect(runSpy).toHaveBeenCalledTimes(1);
     runSpy.mockRestore();
   });
 
-  it("throws when strict stream backend cannot execute switch branches", async () => {
+  it("executes switch branches via SQL when supported", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "country", "name"],
@@ -547,17 +545,14 @@ describe("getTabularOutputAsync", () => {
       { id: "e3", source: "sw", sourceHandle: "switch-default", target: "vizd" },
     ];
 
-    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
-    await expect(getTabularOutputAsync("vizb", nodes, edges)).rejects.toThrow(
-      "Operation chain is not SQL-capable in strict mode",
-    );
-    await expect(getTabularOutputAsync("vizd", nodes, edges)).rejects.toThrow(
-      "Operation chain is not SQL-capable in strict mode",
-    );
-    planSpy.mockRestore();
+    const resultB = await getTabularOutputAsync("vizb", nodes, edges);
+    expect(resultB.headers).toContain("name");
+
+    const resultD = await getTabularOutputAsync("vizd", nodes, edges);
+    expect(resultD.headers).toContain("name");
   });
 
-  it("fails cast output in strict mode when planner unavailable", async () => {
+  it("executes cast via SQL", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["Subscription Date", "Email"],
@@ -608,6 +603,8 @@ describe("getTabularOutputAsync", () => {
       { id: "e1", source: "src", target: "cast" },
       { id: "e2", source: "cast", target: "viz" },
     ];
-    await expectStrictSqlFailure(getTabularOutputAsync("cast", nodes, edges));
+    const result = await getTabularOutputAsync("cast", nodes, edges);
+    expect(result.headers).toContain("Subscription Date");
+    expect(result.headers).toContain("Email");
   });
 });

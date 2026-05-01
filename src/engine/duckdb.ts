@@ -49,7 +49,17 @@ function formatError(value: unknown): string {
   return String(value);
 }
 
+function isTestRuntime(): boolean {
+  return typeof process !== "undefined" && process.env?.VITEST === "true";
+}
+
 async function bootstrap(): Promise<duckdb.AsyncDuckDB> {
+  // Use native Node.js DuckDB in tests for better performance and compatibility
+  if (isTestRuntime()) {
+    const { createNodeDuckDB } = await import("./duckdb.node");
+    return await createNodeDuckDB();
+  }
+
   const bundles = import.meta.env.PROD
     ? duckdb.getJsDelivrBundles()
     : (await import("./duckdbLocalBundles")).getLocalBundles();
@@ -81,7 +91,6 @@ async function bootstrap(): Promise<duckdb.AsyncDuckDB> {
 }
 
 export async function ensureDuckDbReady(): Promise<void> {
-  if (isTestRuntime()) return;
   if (readyState.kind === "ready") return;
   if (readyState.kind === "failed") throw readyState.error;
   if (readyState.kind === "initializing") return readyState.promise;
@@ -107,11 +116,4 @@ export async function getDuckDb(): Promise<duckdb.AsyncDuckDB> {
     throw new DuckDbInitError("DuckDB was not ready after initialization");
   }
   return readyState.db;
-}
-
-export function resetDuckDbForTests(): void {
-  readyState = { kind: "idle" };
-}
-function isTestRuntime(): boolean {
-  return typeof process !== "undefined" && process.env?.VITEST === "true";
 }

@@ -127,11 +127,6 @@ async function queryScanRows(
   const db = await getDuckDb();
   const conn = await db.connect();
   const fileName = `scan-${id}-${crypto.randomUUID()}.ndjson`;
-  const selectCols = headers.map((h) => quoteSqlIdent(h)).join(", ");
-  const baseSql =
-    `SELECT ${selectCols}, ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ` +
-    `FROM read_ndjson_auto(${quoteSqlString(fileName)}) ` +
-    `ORDER BY ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ASC`;
 
   try {
     if (row.opfsRelPath != null) {
@@ -141,6 +136,22 @@ async function queryScanRows(
     } else {
       await db.registerFileText(fileName, row.bodyInline ?? "");
     }
+
+    // In Node.js test environment, use absolute path for file access
+    let filePathForSql = fileName;
+    if (typeof process !== "undefined" && process.env?.VITEST === "true") {
+      // @ts-ignore - getRegisteredFilePath exists in Node.js adapter
+      const absolutePath = db.getRegisteredFilePath?.(fileName);
+      if (absolutePath) {
+        filePathForSql = absolutePath;
+      }
+    }
+
+    const selectCols = headers.map((h) => quoteSqlIdent(h)).join(", ");
+    const baseSql =
+      `SELECT ${selectCols}, ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ` +
+      `FROM read_ndjson_auto(${quoteSqlString(filePathForSql)}) ` +
+      `ORDER BY ${quoteSqlIdent(INGEST_ORDINAL_COLUMN)} ASC`;
 
     const allRows: Record<string, string>[] = [];
     let scanned = 0;
@@ -504,11 +515,24 @@ export function createDatasetStore(): DatasetStore {
         DuckDBDataProtocol.BROWSER_FILEREADER,
         false,
       );
+
+      // In Node.js test environment, use absolute paths
+      let srcPathForSql = srcName;
+      let outPathForSql = outName;
+      if (typeof process !== "undefined" && process.env?.VITEST === "true") {
+        // @ts-ignore - getRegisteredFilePath exists in Node.js adapter
+        const srcAbsolute = db.getRegisteredFilePath?.(srcName);
+        if (srcAbsolute) srcPathForSql = srcAbsolute;
+        // @ts-ignore - getFilePathForWrite exists in Node.js adapter
+        const outAbsolute = db.getFilePathForWrite?.(outName);
+        if (outAbsolute) outPathForSql = outAbsolute;
+      }
+
       try {
         const conn = await db.connect();
         try {
           await conn.query(
-            `COPY (SELECT * FROM read_ndjson_auto(${quoteSqlString(srcName)})) TO ${quoteSqlString(outName)} (FORMAT PARQUET)`,
+            `COPY (SELECT * FROM read_ndjson_auto(${quoteSqlString(srcPathForSql)})) TO ${quoteSqlString(outPathForSql)} (FORMAT PARQUET)`,
           );
         } finally {
           await conn.close();
@@ -581,9 +605,20 @@ export function createDatasetStore(): DatasetStore {
       } else {
         await db.registerFileText(fileName, row.bodyInline ?? "");
       }
+
+      // In Node.js test environment, use absolute path for file access
+      let filePathForSql = fileName;
+      if (typeof process !== "undefined" && process.env?.VITEST === "true") {
+        // @ts-ignore - getRegisteredFilePath exists in Node.js adapter
+        const absolutePath = db.getRegisteredFilePath?.(fileName);
+        if (absolutePath) {
+          filePathForSql = absolutePath;
+        }
+      }
+
       const cached: CachedSqlSource = {
         headers: [...(row.meta.headers ?? [])],
-        fromSql: `read_ndjson_auto(${quoteSqlString(fileName)})`,
+        fromSql: `read_ndjson_auto(${quoteSqlString(filePathForSql)})`,
         dropFileName: fileName,
       };
       sqlSourceByDatasetId.set(id, cached);
