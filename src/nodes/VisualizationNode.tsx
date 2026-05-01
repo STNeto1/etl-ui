@@ -11,6 +11,10 @@ import { visualizationUpstreamStaleKey } from "../graph/tabularStaleKey";
 
 const DEFAULT_PREVIEW_ROWS = 100;
 const MAX_PREVIEW_ROWS = 10_000;
+const ROW_PRESETS = [10, 25, 50, 100, 500] as const;
+const CELL_WIDTH_PRESETS = [160, 240, 320, 480] as const;
+
+type SortDirection = "asc" | "desc";
 
 type VizResolution =
   | { kind: "loading" }
@@ -34,6 +38,14 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isExploreOpen, setIsExploreOpen] = useState(false);
   const [wrapCells, setWrapCells] = useState(false);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
+  const [sortColumn, setSortColumn] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection | null>(null);
+  const [density, setDensity] = useState<"compact" | "comfortable">("compact");
+  const [cellWidth, setCellWidth] = useState<(typeof CELL_WIDTH_PRESETS)[number]>(320);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const hasReadyResolutionRef = useRef(false);
   const requestSeqRef = useRef(0);
 
@@ -201,6 +213,105 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [isExploreOpen]);
 
+  useEffect(() => {
+    if (!isExploreOpen) return;
+    setShowColumnPicker(false);
+    setVisibleColumns((current) => {
+      if (headers.length === 0) return [];
+      if (current.length === 0) return headers;
+      const filtered = headers.filter((header) => current.includes(header));
+      return filtered.length > 0 ? filtered : headers;
+    });
+  }, [headers, isExploreOpen]);
+
+  useEffect(() => {
+    if (sortColumn == null) return;
+    if (!visibleColumns.includes(sortColumn)) {
+      setSortColumn(null);
+      setSortDirection(null);
+    }
+  }, [sortColumn, visibleColumns]);
+
+  const visibleHeaderSet = useMemo(() => new Set(visibleColumns), [visibleColumns]);
+  const modalHeaders = useMemo(
+    () => headers.filter((header) => visibleHeaderSet.has(header)),
+    [headers, visibleHeaderSet],
+  );
+
+  const filteredRows = useMemo(() => {
+    const trimmedQuery = searchQuery.trim().toLowerCase();
+    if (trimmedQuery.length === 0) return previewRows;
+    if (modalHeaders.length === 0) return [];
+    return previewRows.filter((row) =>
+      modalHeaders.some((header) => {
+        const value = row[header];
+        return typeof value === "string" && value.toLowerCase().includes(trimmedQuery);
+      }),
+    );
+  }, [modalHeaders, previewRows, searchQuery]);
+
+  const sortedRows = useMemo(() => {
+    if (sortColumn == null || sortDirection == null || !modalHeaders.includes(sortColumn)) {
+      return filteredRows;
+    }
+    const sorted = [...filteredRows];
+    sorted.sort((a, b) => {
+      const av = (a[sortColumn] ?? "").toString();
+      const bv = (b[sortColumn] ?? "").toString();
+      const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [filteredRows, modalHeaders, sortColumn, sortDirection]);
+
+  const toggleSort = useCallback((header: string) => {
+    setSortColumn((currentColumn) => {
+      if (currentColumn !== header) {
+        setSortDirection("asc");
+        return header;
+      }
+      setSortDirection((currentDirection) => {
+        if (currentDirection === "asc") return "desc";
+        if (currentDirection === "desc") return null;
+        return "asc";
+      });
+      return currentColumn;
+    });
+  }, []);
+
+  const setAllColumns = useCallback(() => setVisibleColumns(headers), [headers]);
+  const clearColumns = useCallback(() => setVisibleColumns([]), []);
+  const resetColumns = useCallback(() => setVisibleColumns(headers), [headers]);
+
+  const toggleColumn = useCallback((header: string) => {
+    setVisibleColumns((current) =>
+      current.includes(header) ? current.filter((h) => h !== header) : [...current, header],
+    );
+  }, []);
+
+  const copyVisibleTableTsv = useCallback(async () => {
+    try {
+      const lines: string[] = [];
+      lines.push(modalHeaders.join("\t"));
+      for (const row of sortedRows) {
+        lines.push(
+          modalHeaders
+            .map((header) => (row[header] ?? "").replaceAll("\t", " ").replaceAll("\n", " "))
+            .join("\t"),
+        );
+      }
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+    window.setTimeout(() => setCopyStatus("idle"), 1400);
+  }, [modalHeaders, sortedRows]);
+
+  const cellClassName = wrapCells
+    ? `px-2 ${density === "compact" ? "py-1" : "py-1.5"} whitespace-pre-wrap break-words text-neutral-800`
+    : `truncate px-2 ${density === "compact" ? "py-1" : "py-1.5"} text-neutral-800`;
+
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
@@ -278,7 +389,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 >
                   +
                 </button>
-                <span className="text-neutral-400">/ {totalRows != null ? totalRows : "…"}</span>
+                <span className="text-neutral-400">/ {totalRows != null ? totalRows : "..."}</span>
                 {isRefreshing && <span className="text-[10px] text-neutral-400">Refreshing…</span>}
                 {filterShrunk && rowsBeforeFilter != null && (
                   <span className="text-[10px] text-neutral-400">
@@ -350,7 +461,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
               onClick={(event) => event.stopPropagation()}
               onPointerDownCapture={(event) => event.stopPropagation()}
             >
-              <div className="flex items-center gap-2 border-b border-neutral-200 bg-neutral-50/90 px-3 py-2 text-xs text-neutral-700">
+              <div className="relative flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50/90 px-3 py-2 text-xs text-neutral-700">
                 <span className="text-sm font-semibold text-neutral-800">Explore data</span>
                 <span className="text-neutral-400">|</span>
                 <span className="shrink-0 font-medium text-neutral-700">Rows</span>
@@ -383,7 +494,60 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 >
                   +
                 </button>
-                <span className="text-neutral-400">/ {totalRows != null ? totalRows : "…"}</span>
+                <span className="text-neutral-400">/ {totalRows != null ? totalRows : "..."}</span>
+                {ROW_PRESETS.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => patchData({ previewRows: preset })}
+                    className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-100"
+                  >
+                    {preset}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setShowColumnPicker((open) => !open)}
+                  className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-100"
+                >
+                  Columns ({modalHeaders.length}/{headers.length})
+                </button>
+                <input
+                  type="search"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search visible columns"
+                  className="nodrag nopan w-44 rounded border border-neutral-300 bg-white px-2 py-0.5 text-[11px] text-neutral-800"
+                />
+                <div className="inline-flex items-center rounded border border-neutral-300 bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setDensity("compact")}
+                    className={`rounded px-1.5 py-0.5 text-[11px] ${density === "compact" ? "bg-neutral-200 text-neutral-900" : "text-neutral-700 hover:bg-neutral-100"}`}
+                  >
+                    Compact
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDensity("comfortable")}
+                    className={`rounded px-1.5 py-0.5 text-[11px] ${density === "comfortable" ? "bg-neutral-200 text-neutral-900" : "text-neutral-700 hover:bg-neutral-100"}`}
+                  >
+                    Comfortable
+                  </button>
+                </div>
+                <div className="inline-flex items-center gap-1">
+                  <span className="text-[11px] text-neutral-500">Cell width</span>
+                  {CELL_WIDTH_PRESETS.map((w) => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setCellWidth(w)}
+                      className={`rounded border px-1.5 py-0.5 text-[11px] ${cellWidth === w ? "border-neutral-500 bg-neutral-200 text-neutral-900" : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100"}`}
+                    >
+                      {w}
+                    </button>
+                  ))}
+                </div>
                 <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-neutral-700">
                   <input
                     type="checkbox"
@@ -395,43 +559,122 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 </label>
                 <button
                   type="button"
+                  onClick={() => void copyVisibleTableTsv()}
+                  className="rounded border border-neutral-300 bg-white px-2 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100"
+                >
+                  Copy TSV
+                </button>
+                {copyStatus === "copied" && (
+                  <span className="text-[11px] text-emerald-700">Copied</span>
+                )}
+                {copyStatus === "failed" && (
+                  <span className="text-[11px] text-rose-700">Copy failed</span>
+                )}
+                <button
+                  type="button"
                   onClick={() => setIsExploreOpen(false)}
                   className="rounded border border-neutral-300 bg-white px-2 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100"
                 >
                   Close
                 </button>
+                {showColumnPicker && (
+                  <div className="absolute left-3 top-10 z-20 w-64 rounded border border-neutral-300 bg-white p-2 shadow-lg">
+                    <div className="mb-1 flex items-center gap-1 text-[11px]">
+                      <button
+                        type="button"
+                        onClick={setAllColumns}
+                        className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 hover:bg-neutral-100"
+                      >
+                        All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearColumns}
+                        className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 hover:bg-neutral-100"
+                      >
+                        None
+                      </button>
+                      <button
+                        type="button"
+                        onClick={resetColumns}
+                        className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 hover:bg-neutral-100"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                    <div className="max-h-52 overflow-auto pr-1 text-[11px]">
+                      {headers.map((header) => (
+                        <label
+                          key={header}
+                          className="flex items-center gap-1 py-0.5 text-neutral-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={visibleHeaderSet.has(header)}
+                            onChange={() => toggleColumn(header)}
+                            className="h-3.5 w-3.5 rounded border-neutral-300"
+                          />
+                          <span className="truncate" title={header}>
+                            {header}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="max-h-[58vh] overflow-auto">
+              <div className="min-h-[240px] max-h-[58vh] overflow-auto">
                 {totalRows === 0 ? (
                   <p className="p-3 text-xs text-neutral-500">
                     {viaFilter && rowsBeforeFilter != null && rowsBeforeFilter > 0
                       ? "No rows match the upstream filter."
                       : "No data rows in the upstream output."}
                   </p>
+                ) : modalHeaders.length === 0 ? (
+                  <div className="flex min-h-[240px] items-center justify-center px-4 py-6">
+                    <div className="flex flex-col items-center gap-2 text-center">
+                      <p className="text-sm font-medium text-neutral-700">No columns selected.</p>
+                      <p className="text-xs text-neutral-500">
+                        Choose columns from the picker or restore all columns.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={setAllColumns}
+                        className="rounded border border-neutral-300 bg-white px-2 py-1 text-xs text-neutral-800 hover:bg-neutral-100"
+                      >
+                        Select all columns
+                      </button>
+                    </div>
+                  </div>
                 ) : (
                   <table className="w-full border-collapse text-left text-xs">
                     <thead>
                       <tr className="sticky top-0 border-b border-neutral-200 bg-neutral-50 text-neutral-700">
-                        {headers.map((h) => (
+                        {modalHeaders.map((h) => (
                           <th key={h} className="whitespace-nowrap px-2 py-1.5 font-semibold">
-                            {h}
+                            <button
+                              type="button"
+                              onClick={() => toggleSort(h)}
+                              className="inline-flex items-center gap-1 hover:text-neutral-900"
+                            >
+                              {h}
+                              {sortColumn === h && sortDirection === "asc" && <span>↑</span>}
+                              {sortColumn === h && sortDirection === "desc" && <span>↓</span>}
+                            </button>
                           </th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {previewRows.map((row, i) => (
+                      {sortedRows.map((row, i) => (
                         <tr key={i} className="border-b border-neutral-100 last:border-b-0">
-                          {headers.map((h) => (
+                          {modalHeaders.map((h) => (
                             <td
                               key={h}
                               title={row[h]}
-                              className={
-                                wrapCells
-                                  ? "px-2 py-1.5 whitespace-pre-wrap break-words text-neutral-800"
-                                  : "max-w-[320px] truncate px-2 py-1.5 text-neutral-800"
-                              }
+                              className={cellClassName}
+                              style={wrapCells ? undefined : { maxWidth: `${cellWidth}px` }}
                             >
                               {row[h] ?? ""}
                             </td>
@@ -444,10 +687,13 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
               </div>
 
               <p className="border-t border-neutral-200 px-3 py-1.5 text-[11px] text-neutral-500">
-                Showing {previewRows.length}
+                Showing {sortedRows.length}
                 {totalRows != null ? ` of ${totalRows}` : " (capped preview)"} row
-                {(totalRows ?? previewRows.length) === 1 ? "" : "s"} from upstream
+                {(totalRows ?? sortedRows.length) === 1 ? "" : "s"} from upstream
                 {viaFilter ? " (after filter)" : " (pass-through)"}.
+                {searchQuery.trim().length > 0
+                  ? ` Filtered from ${previewRows.length} preview rows.`
+                  : ""}
                 {isRefreshing ? " Refreshing..." : ""}
               </p>
             </div>
