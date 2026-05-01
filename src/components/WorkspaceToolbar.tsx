@@ -28,6 +28,7 @@ type WorkspaceToolbarProps = {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  onFormatWorkflow: () => void;
 };
 
 export function WorkspaceToolbar({
@@ -50,6 +51,7 @@ export function WorkspaceToolbar({
   onRedo,
   canUndo,
   canRedo,
+  onFormatWorkflow,
 }: WorkspaceToolbarProps) {
   const canDelete = workspaceIndex.items.length > 1;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +143,14 @@ export function WorkspaceToolbar({
           </button>
           <button type="button" className={btnClass} disabled={!canRedo} onClick={onRedo}>
             Redo
+          </button>
+          <button
+            type="button"
+            className={btnClass}
+            title="Auto-arrange nodes by connections"
+            onClick={onFormatWorkflow}
+          >
+            Format
           </button>
         </div>
       </div>

@@ -83,6 +83,7 @@ import {
   type WorkspaceIndex,
 } from "./persistence/workspaceStore";
 import { getBlankWorkspaceGraph } from "./workspace/blankWorkspace";
+import { layoutWorkflowGraph } from "./workspace/layoutWorkflowGraph";
 import { resetGraph } from "./workspace/resetGraph";
 import {
   getWorkspaceTemplateSnapshot,
@@ -126,10 +127,8 @@ function FlowWorkspace() {
   const [resetSourceToo, setResetSourceToo] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkspaceTemplateId>("starter");
-  const { screenToFlowPosition, fitView, deleteElements, getNodes, getEdges } = useReactFlow<
-    AppNode,
-    Edge
-  >();
+  const { screenToFlowPosition, fitView, deleteElements, getNodes, getEdges, setNodes: setRfNodes } =
+    useReactFlow<AppNode, Edge>();
 
   const {
     undo,
@@ -380,6 +379,29 @@ function FlowWorkspace() {
     },
     [workspaceId, resetHistory, fitView],
   );
+
+  const handleFormatWorkflow = useCallback(() => {
+    const rfById = new Map(getNodes().map((n) => [n.id, n]));
+    const forLayout = nodes.map((n) => {
+      const rf = rfById.get(n.id);
+      if (rf == null) return n;
+      return {
+        ...n,
+        measured: rf.measured,
+        width: rf.width ?? n.width,
+        height: rf.height ?? n.height,
+      } as AppNode;
+    });
+    const laidOut = layoutWorkflowGraph(forLayout, edges);
+    if (laidOut == null) return;
+    // Bulk programmatic updates must go through React Flow's batched setNodes so controlled
+    // graphs receive replace changes via onNodesChange; plain React setState can leave the
+    // internal store out of sync until the next interaction.
+    setRfNodes(laidOut);
+    requestAnimationFrame(() => {
+      void fitView({ duration: 200 });
+    });
+  }, [getNodes, nodes, edges, setRfNodes, fitView]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -715,6 +737,7 @@ function FlowWorkspace() {
             onRedo={redo}
             canUndo={canUndo}
             canRedo={canRedo}
+            onFormatWorkflow={handleFormatWorkflow}
           />
         ) : null}
         <div className="min-h-0 w-full flex-1">
