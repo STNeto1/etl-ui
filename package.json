@@ -16,6 +16,7 @@
     "@dagrejs/dagre": "^3.0.0",
     "@duckdb/duckdb-wasm": "^1.33.1-dev45.0",
     "@tailwindcss/vite": "^4.2.4",
+    "@xstate/react": "^6.1.0",
     "@xyflow/react": "^12.10.2",
     "expr-eval": "^2.0.2",
     "papaparse": "^5.5.2",
@@ -23,7 +24,8 @@
     "react-dom": "^19.2.5",
     "stream-chain": "^3.6.1",
     "stream-json": "^2.1.0",
-    "tailwindcss": "^4.2.4"
+    "tailwindcss": "^4.2.4",
+    "xstate": "^5.31.0"
   },
   "devDependencies": {
     "@rolldown/plugin-babel": "^0.2.3",

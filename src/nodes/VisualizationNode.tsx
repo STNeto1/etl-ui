@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
+import { useMachine } from "@xstate/react";
+import { assign, setup } from "xstate";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getPreviewForEdgeAsync, getRowCountForEdgeAsync } from "../graph/tabularOutput";
 import type {
@@ -15,6 +17,159 @@ const ROW_PRESETS = [10, 25, 50, 100, 500] as const;
 const CELL_WIDTH_PRESETS = [160, 240, 320, 480] as const;
 
 type SortDirection = "asc" | "desc";
+
+type ExploreUiContext = {
+  wrapCells: boolean;
+  searchQuery: string;
+  visibleColumns: string[];
+  sortColumn: string | null;
+  sortDirection: SortDirection | null;
+  density: "compact" | "comfortable";
+  cellWidth: (typeof CELL_WIDTH_PRESETS)[number];
+  copyStatus: "idle" | "copied" | "failed";
+};
+
+type ExploreUiEvent =
+  | { type: "OPEN"; headers: string[] }
+  | { type: "CLOSE" }
+  | { type: "SET_WRAP_CELLS"; value: boolean }
+  | { type: "SET_SEARCH_QUERY"; value: string }
+  | { type: "TOGGLE_COLUMN_PICKER" }
+  | { type: "SET_ALL_COLUMNS"; headers: string[] }
+  | { type: "CLEAR_COLUMNS" }
+  | { type: "RESET_COLUMNS"; headers: string[] }
+  | { type: "TOGGLE_COLUMN"; header: string }
+  | { type: "TOGGLE_SORT"; header: string }
+  | { type: "SET_DENSITY"; value: "compact" | "comfortable" }
+  | { type: "SET_CELL_WIDTH"; value: (typeof CELL_WIDTH_PRESETS)[number] }
+  | { type: "SET_COPY_STATUS"; value: "idle" | "copied" | "failed" };
+
+const initialExploreUiContext: ExploreUiContext = {
+  wrapCells: false,
+  searchQuery: "",
+  visibleColumns: [],
+  sortColumn: null,
+  sortDirection: null,
+  density: "compact",
+  cellWidth: 320,
+  copyStatus: "idle",
+};
+
+function sanitizeVisibleColumns(currentVisibleColumns: string[], headers: string[]): string[] {
+  if (headers.length === 0) return [];
+  if (currentVisibleColumns.length === 0) return headers;
+  const filtered = headers.filter((header) => currentVisibleColumns.includes(header));
+  return filtered.length > 0 ? filtered : headers;
+}
+
+function clearSortIfHidden(context: ExploreUiContext): ExploreUiContext {
+  if (context.sortColumn != null && !context.visibleColumns.includes(context.sortColumn)) {
+    return { ...context, sortColumn: null, sortDirection: null };
+  }
+  return context;
+}
+
+const exploreUiMachine = setup({
+  types: {
+    context: {} as ExploreUiContext,
+    events: {} as ExploreUiEvent,
+  },
+  actions: {
+    openExplore: assign(({ context, event }) => {
+      if (event.type !== "OPEN") return context;
+      const visibleColumns = sanitizeVisibleColumns(context.visibleColumns, event.headers);
+      return clearSortIfHidden({ ...context, visibleColumns });
+    }),
+    setWrapCells: assign(({ context, event }) =>
+      event.type === "SET_WRAP_CELLS" ? { ...context, wrapCells: event.value } : context,
+    ),
+    setSearchQuery: assign(({ context, event }) =>
+      event.type === "SET_SEARCH_QUERY" ? { ...context, searchQuery: event.value } : context,
+    ),
+    setAllColumns: assign(({ context, event }) =>
+      event.type === "SET_ALL_COLUMNS" ? { ...context, visibleColumns: event.headers } : context,
+    ),
+    clearColumns: assign(({ context }) => clearSortIfHidden({ ...context, visibleColumns: [] })),
+    resetColumns: assign(({ context, event }) =>
+      event.type === "RESET_COLUMNS" ? { ...context, visibleColumns: event.headers } : context,
+    ),
+    toggleColumn: assign(({ context, event }) => {
+      if (event.type !== "TOGGLE_COLUMN") return context;
+      const visibleColumns = context.visibleColumns.includes(event.header)
+        ? context.visibleColumns.filter((h) => h !== event.header)
+        : [...context.visibleColumns, event.header];
+      return clearSortIfHidden({ ...context, visibleColumns });
+    }),
+    toggleSort: assign(({ context, event }) => {
+      if (event.type !== "TOGGLE_SORT") return context;
+      if (context.sortColumn !== event.header) {
+        return { ...context, sortColumn: event.header, sortDirection: "asc" };
+      }
+      if (context.sortDirection === "asc") {
+        return { ...context, sortDirection: "desc" };
+      }
+      if (context.sortDirection === "desc") {
+        return { ...context, sortColumn: null, sortDirection: null };
+      }
+      return { ...context, sortDirection: "asc" };
+    }),
+    setDensity: assign(({ context, event }) =>
+      event.type === "SET_DENSITY" ? { ...context, density: event.value } : context,
+    ),
+    setCellWidth: assign(({ context, event }) =>
+      event.type === "SET_CELL_WIDTH" ? { ...context, cellWidth: event.value } : context,
+    ),
+    setCopyStatus: assign(({ context, event }) =>
+      event.type === "SET_COPY_STATUS" ? { ...context, copyStatus: event.value } : context,
+    ),
+  },
+}).createMachine({
+  id: "visualizationExploreUi",
+  initial: "closed",
+  context: initialExploreUiContext,
+  states: {
+    closed: {
+      on: {
+        OPEN: {
+          target: "open.columnPickerClosed",
+          actions: "openExplore",
+        },
+      },
+    },
+    open: {
+      initial: "columnPickerClosed",
+      states: {
+        columnPickerClosed: {
+          on: {
+            TOGGLE_COLUMN_PICKER: "columnPickerOpen",
+          },
+        },
+        columnPickerOpen: {
+          on: {
+            TOGGLE_COLUMN_PICKER: "columnPickerClosed",
+          },
+        },
+      },
+      on: {
+        CLOSE: "closed",
+        OPEN: {
+          target: "open.columnPickerClosed",
+          actions: "openExplore",
+        },
+        SET_WRAP_CELLS: { actions: "setWrapCells" },
+        SET_SEARCH_QUERY: { actions: "setSearchQuery" },
+        SET_ALL_COLUMNS: { actions: "setAllColumns" },
+        CLEAR_COLUMNS: { actions: "clearColumns" },
+        RESET_COLUMNS: { actions: "resetColumns" },
+        TOGGLE_COLUMN: { actions: "toggleColumn" },
+        TOGGLE_SORT: { actions: "toggleSort" },
+        SET_DENSITY: { actions: "setDensity" },
+        SET_CELL_WIDTH: { actions: "setCellWidth" },
+        SET_COPY_STATUS: { actions: "setCopyStatus" },
+      },
+    },
+  },
+});
 
 type VizResolution =
   | { kind: "loading" }
@@ -36,16 +191,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const requestedRows = data.previewRows ?? DEFAULT_PREVIEW_ROWS;
   const [resolution, setResolution] = useState<VizResolution>({ kind: "loading" });
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isExploreOpen, setIsExploreOpen] = useState(false);
-  const [wrapCells, setWrapCells] = useState(false);
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
-  const [sortColumn, setSortColumn] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection | null>(null);
-  const [density, setDensity] = useState<"compact" | "comfortable">("compact");
-  const [cellWidth, setCellWidth] = useState<(typeof CELL_WIDTH_PRESETS)[number]>(320);
-  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  const [exploreState, sendExplore] = useMachine(exploreUiMachine);
   const hasReadyResolutionRef = useRef(false);
   const requestSeqRef = useRef(0);
 
@@ -203,43 +349,28 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   );
 
   useEffect(() => {
-    if (!isExploreOpen) return;
+    if (!exploreState.matches("open")) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsExploreOpen(false);
+        sendExplore({ type: "CLOSE" });
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isExploreOpen]);
+  }, [exploreState, sendExplore]);
 
-  useEffect(() => {
-    if (!isExploreOpen) return;
-    setShowColumnPicker(false);
-    setVisibleColumns((current) => {
-      if (headers.length === 0) return [];
-      if (current.length === 0) return headers;
-      const filtered = headers.filter((header) => current.includes(header));
-      return filtered.length > 0 ? filtered : headers;
-    });
-  }, [headers, isExploreOpen]);
+  const ui = exploreState.context;
+  const isExploreOpen = exploreState.matches("open");
+  const showColumnPicker = exploreState.matches({ open: "columnPickerOpen" });
 
-  useEffect(() => {
-    if (sortColumn == null) return;
-    if (!visibleColumns.includes(sortColumn)) {
-      setSortColumn(null);
-      setSortDirection(null);
-    }
-  }, [sortColumn, visibleColumns]);
-
-  const visibleHeaderSet = useMemo(() => new Set(visibleColumns), [visibleColumns]);
+  const visibleHeaderSet = useMemo(() => new Set(ui.visibleColumns), [ui.visibleColumns]);
   const modalHeaders = useMemo(
     () => headers.filter((header) => visibleHeaderSet.has(header)),
     [headers, visibleHeaderSet],
   );
 
   const filteredRows = useMemo(() => {
-    const trimmedQuery = searchQuery.trim().toLowerCase();
+    const trimmedQuery = ui.searchQuery.trim().toLowerCase();
     if (trimmedQuery.length === 0) return previewRows;
     if (modalHeaders.length === 0) return [];
     return previewRows.filter((row) =>
@@ -248,45 +379,42 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         return typeof value === "string" && value.toLowerCase().includes(trimmedQuery);
       }),
     );
-  }, [modalHeaders, previewRows, searchQuery]);
+  }, [modalHeaders, previewRows, ui.searchQuery]);
 
   const sortedRows = useMemo(() => {
-    if (sortColumn == null || sortDirection == null || !modalHeaders.includes(sortColumn)) {
+    if (
+      ui.sortColumn == null ||
+      ui.sortDirection == null ||
+      !modalHeaders.includes(ui.sortColumn)
+    ) {
       return filteredRows;
     }
     const sorted = [...filteredRows];
     sorted.sort((a, b) => {
-      const av = (a[sortColumn] ?? "").toString();
-      const bv = (b[sortColumn] ?? "").toString();
+      const av = (a[ui.sortColumn!] ?? "").toString();
+      const bv = (b[ui.sortColumn!] ?? "").toString();
       const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: "base" });
-      return sortDirection === "asc" ? cmp : -cmp;
+      return ui.sortDirection === "asc" ? cmp : -cmp;
     });
     return sorted;
-  }, [filteredRows, modalHeaders, sortColumn, sortDirection]);
+  }, [filteredRows, modalHeaders, ui.sortColumn, ui.sortDirection]);
 
   const toggleSort = useCallback((header: string) => {
-    setSortColumn((currentColumn) => {
-      if (currentColumn !== header) {
-        setSortDirection("asc");
-        return header;
-      }
-      setSortDirection((currentDirection) => {
-        if (currentDirection === "asc") return "desc";
-        if (currentDirection === "desc") return null;
-        return "asc";
-      });
-      return currentColumn;
-    });
+    sendExplore({ type: "TOGGLE_SORT", header });
   }, []);
 
-  const setAllColumns = useCallback(() => setVisibleColumns(headers), [headers]);
-  const clearColumns = useCallback(() => setVisibleColumns([]), []);
-  const resetColumns = useCallback(() => setVisibleColumns(headers), [headers]);
+  const setAllColumns = useCallback(
+    () => sendExplore({ type: "SET_ALL_COLUMNS", headers }),
+    [headers],
+  );
+  const clearColumns = useCallback(() => sendExplore({ type: "CLEAR_COLUMNS" }), [sendExplore]);
+  const resetColumns = useCallback(
+    () => sendExplore({ type: "RESET_COLUMNS", headers }),
+    [headers],
+  );
 
   const toggleColumn = useCallback((header: string) => {
-    setVisibleColumns((current) =>
-      current.includes(header) ? current.filter((h) => h !== header) : [...current, header],
-    );
+    sendExplore({ type: "TOGGLE_COLUMN", header });
   }, []);
 
   const copyVisibleTableTsv = useCallback(async () => {
@@ -301,16 +429,16 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         );
       }
       await navigator.clipboard.writeText(lines.join("\n"));
-      setCopyStatus("copied");
+      sendExplore({ type: "SET_COPY_STATUS", value: "copied" });
     } catch {
-      setCopyStatus("failed");
+      sendExplore({ type: "SET_COPY_STATUS", value: "failed" });
     }
-    window.setTimeout(() => setCopyStatus("idle"), 1400);
-  }, [modalHeaders, sortedRows]);
+    window.setTimeout(() => sendExplore({ type: "SET_COPY_STATUS", value: "idle" }), 1400);
+  }, [modalHeaders, sendExplore, sortedRows]);
 
-  const cellClassName = wrapCells
-    ? `px-2 ${density === "compact" ? "py-1" : "py-1.5"} whitespace-pre-wrap break-words text-neutral-800`
-    : `truncate px-2 ${density === "compact" ? "py-1" : "py-1.5"} text-neutral-800`;
+  const cellClassName = ui.wrapCells
+    ? `px-2 ${ui.density === "compact" ? "py-1" : "py-1.5"} whitespace-pre-wrap break-words text-neutral-800`
+    : `truncate px-2 ${ui.density === "compact" ? "py-1" : "py-1.5"} text-neutral-800`;
 
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
@@ -398,7 +526,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 )}
                 <button
                   type="button"
-                  onClick={() => setIsExploreOpen(true)}
+                  onClick={() => sendExplore({ type: "OPEN", headers })}
                   className="nodrag nopan ml-auto rounded border border-neutral-300 bg-white px-1.5 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100"
                 >
                   Explore
@@ -451,7 +579,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         createPortal(
           <div
             className="nodrag nopan fixed inset-0 z-[9999] flex items-center justify-center bg-neutral-900/45 px-3 py-6"
-            onClick={() => setIsExploreOpen(false)}
+            onClick={() => sendExplore({ type: "CLOSE" })}
           >
             <div
               className="nodrag nopan flex w-[min(92vw,860px)] max-w-215 flex-col overflow-hidden rounded-xl border border-neutral-300 bg-white shadow-xl"
@@ -507,30 +635,32 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 ))}
                 <button
                   type="button"
-                  onClick={() => setShowColumnPicker((open) => !open)}
+                  onClick={() => sendExplore({ type: "TOGGLE_COLUMN_PICKER" })}
                   className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 text-[11px] text-neutral-700 hover:bg-neutral-100"
                 >
                   Columns ({modalHeaders.length}/{headers.length})
                 </button>
                 <input
                   type="search"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
+                  value={ui.searchQuery}
+                  onChange={(event) =>
+                    sendExplore({ type: "SET_SEARCH_QUERY", value: event.target.value })
+                  }
                   placeholder="Search visible columns"
                   className="nodrag nopan w-44 rounded border border-neutral-300 bg-white px-2 py-0.5 text-[11px] text-neutral-800"
                 />
                 <div className="inline-flex items-center rounded border border-neutral-300 bg-white p-0.5">
                   <button
                     type="button"
-                    onClick={() => setDensity("compact")}
-                    className={`rounded px-1.5 py-0.5 text-[11px] ${density === "compact" ? "bg-neutral-200 text-neutral-900" : "text-neutral-700 hover:bg-neutral-100"}`}
+                    onClick={() => sendExplore({ type: "SET_DENSITY", value: "compact" })}
+                    className={`rounded px-1.5 py-0.5 text-[11px] ${ui.density === "compact" ? "bg-neutral-200 text-neutral-900" : "text-neutral-700 hover:bg-neutral-100"}`}
                   >
                     Compact
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDensity("comfortable")}
-                    className={`rounded px-1.5 py-0.5 text-[11px] ${density === "comfortable" ? "bg-neutral-200 text-neutral-900" : "text-neutral-700 hover:bg-neutral-100"}`}
+                    onClick={() => sendExplore({ type: "SET_DENSITY", value: "comfortable" })}
+                    className={`rounded px-1.5 py-0.5 text-[11px] ${ui.density === "comfortable" ? "bg-neutral-200 text-neutral-900" : "text-neutral-700 hover:bg-neutral-100"}`}
                   >
                     Comfortable
                   </button>
@@ -541,8 +671,8 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                     <button
                       key={w}
                       type="button"
-                      onClick={() => setCellWidth(w)}
-                      className={`rounded border px-1.5 py-0.5 text-[11px] ${cellWidth === w ? "border-neutral-500 bg-neutral-200 text-neutral-900" : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100"}`}
+                      onClick={() => sendExplore({ type: "SET_CELL_WIDTH", value: w })}
+                      className={`rounded border px-1.5 py-0.5 text-[11px] ${ui.cellWidth === w ? "border-neutral-500 bg-neutral-200 text-neutral-900" : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100"}`}
                     >
                       {w}
                     </button>
@@ -551,8 +681,10 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-neutral-700">
                   <input
                     type="checkbox"
-                    checked={wrapCells}
-                    onChange={(event) => setWrapCells(event.target.checked)}
+                    checked={ui.wrapCells}
+                    onChange={(event) =>
+                      sendExplore({ type: "SET_WRAP_CELLS", value: event.target.checked })
+                    }
                     className="h-3.5 w-3.5 rounded border-neutral-300"
                   />
                   Wrap cells
@@ -564,15 +696,15 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 >
                   Copy TSV
                 </button>
-                {copyStatus === "copied" && (
+                {ui.copyStatus === "copied" && (
                   <span className="text-[11px] text-emerald-700">Copied</span>
                 )}
-                {copyStatus === "failed" && (
+                {ui.copyStatus === "failed" && (
                   <span className="text-[11px] text-rose-700">Copy failed</span>
                 )}
                 <button
                   type="button"
-                  onClick={() => setIsExploreOpen(false)}
+                  onClick={() => sendExplore({ type: "CLOSE" })}
                   className="rounded border border-neutral-300 bg-white px-2 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100"
                 >
                   Close
@@ -659,8 +791,8 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                               className="inline-flex items-center gap-1 hover:text-neutral-900"
                             >
                               {h}
-                              {sortColumn === h && sortDirection === "asc" && <span>↑</span>}
-                              {sortColumn === h && sortDirection === "desc" && <span>↓</span>}
+                              {ui.sortColumn === h && ui.sortDirection === "asc" && <span>↑</span>}
+                              {ui.sortColumn === h && ui.sortDirection === "desc" && <span>↓</span>}
                             </button>
                           </th>
                         ))}
@@ -674,7 +806,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                               key={h}
                               title={row[h]}
                               className={cellClassName}
-                              style={wrapCells ? undefined : { maxWidth: `${cellWidth}px` }}
+                              style={ui.wrapCells ? undefined : { maxWidth: `${ui.cellWidth}px` }}
                             >
                               {row[h] ?? ""}
                             </td>
@@ -691,7 +823,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                 {totalRows != null ? ` of ${totalRows}` : " (capped preview)"} row
                 {(totalRows ?? sortedRows.length) === 1 ? "" : "s"} from upstream
                 {viaFilter ? " (after filter)" : " (pass-through)"}.
-                {searchQuery.trim().length > 0
+                {ui.searchQuery.trim().length > 0
                   ? ` Filtered from ${previewRows.length} preview rows.`
                   : ""}
                 {isRefreshing ? " Refreshing..." : ""}
