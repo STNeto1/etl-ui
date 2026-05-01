@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
+import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import type { AppNode, SortKey, SortNode as SortNodeType, SortNodeData } from "../types/flow";
 
 export function SortNode({ id, data }: NodeProps<SortNodeType>) {
@@ -9,8 +9,7 @@ export function SortNode({ id, data }: NodeProps<SortNodeType>) {
   const edges = useEdges();
 
   const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
-  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
-  const headers = useMemo(() => payload?.headers ?? [], [payload]);
+  const { headers } = useTabularHeadersFromEdge(incomingEdge, nodes, edges);
   const keys = useMemo(() => data.keys ?? [], [data.keys]);
 
   const invalidColumns = useMemo(

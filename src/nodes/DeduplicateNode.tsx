@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
+import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import type {
   AppNode,
   DeduplicateNode as DeduplicateNodeType,
@@ -14,8 +14,7 @@ export function DeduplicateNode({ id, data }: NodeProps<DeduplicateNodeType>) {
   const edges = useEdges();
 
   const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
-  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
-  const headers = useMemo(() => payload?.headers ?? [], [payload]);
+  const { headers } = useTabularHeadersFromEdge(incomingEdge, nodes, edges);
   const dedupeMode = data.dedupeMode ?? "fullRow";
   const dedupeKeys = useMemo(() => data.dedupeKeys ?? [], [data.dedupeKeys]);
 

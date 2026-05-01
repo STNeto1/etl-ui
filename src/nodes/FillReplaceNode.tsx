@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
+import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import type {
   AppNode,
   FillReplaceFillRule,
@@ -22,8 +22,7 @@ export function FillReplaceNode({ id, data }: NodeProps<FillReplaceNodeType>) {
   const edges = useEdges();
 
   const incomingEdge = useMemo(() => edges.find((edge) => edge.target === id) ?? null, [edges, id]);
-  const { payload } = useTabularPayloadFromEdge(incomingEdge, nodes, edges);
-  const headers = useMemo(() => payload?.headers ?? [], [payload]);
+  const { headers } = useTabularHeadersFromEdge(incomingEdge, nodes, edges);
   const fills = useMemo(() => data.fills ?? [], [data.fills]);
   const replacements = useMemo(() => data.replacements ?? [], [data.replacements]);
 

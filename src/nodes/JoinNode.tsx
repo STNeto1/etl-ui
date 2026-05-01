@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
-import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
+import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
+import { useTabularRowCountFromEdge } from "../graph/useTabularRowCountFromEdge";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import type {
   AppNode,
@@ -24,11 +25,13 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
     [edges, id],
   );
 
-  const { payload: leftPayload } = useTabularPayloadFromEdge(leftEdge, nodes, edges);
-  const { payload: rightPayload } = useTabularPayloadFromEdge(rightEdge, nodes, edges);
+  const { headers: leftHeaders } = useTabularHeadersFromEdge(leftEdge, nodes, edges);
+  const { headers: rightHeaders } = useTabularHeadersFromEdge(rightEdge, nodes, edges);
+  const { rowCount: leftRowCount } = useTabularRowCountFromEdge(leftEdge, nodes, edges);
+  const { rowCount: rightRowCount } = useTabularRowCountFromEdge(rightEdge, nodes, edges);
 
-  const leftHeaders = useMemo(() => leftPayload?.headers ?? [], [leftPayload]);
-  const rightHeaders = useMemo(() => rightPayload?.headers ?? [], [rightPayload]);
+  const leftConnected = leftEdge != null;
+  const rightConnected = rightEdge != null;
 
   const joinKind = data.joinKind ?? "inner";
   const keyPairs = useMemo(() => data.keyPairs ?? [], [data.keyPairs]);
@@ -74,7 +77,7 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
     [keyPairs, patchData],
   );
 
-  const showNoKeysWarning = leftPayload != null && rightPayload != null && keyPairs.length === 0;
+  const showNoKeysWarning = leftConnected && rightConnected && keyPairs.length === 0;
   const showInvalidPairsWarning = invalidPairs.length > 0;
 
   return (
@@ -115,15 +118,15 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
       >
         <div className="flex items-center justify-between text-neutral-700">
           <span>Left rows</span>
-          <span className="font-medium">{leftPayload?.rows.length ?? "—"}</span>
+          <span className="font-medium">{leftRowCount ?? "—"}</span>
         </div>
         <div className="mt-1 flex items-center justify-between text-neutral-700">
           <span>Right rows</span>
-          <span className="font-medium">{rightPayload?.rows.length ?? "—"}</span>
+          <span className="font-medium">{rightRowCount ?? "—"}</span>
         </div>
       </div>
 
-      {leftPayload == null || rightPayload == null ? (
+      {!leftConnected || !rightConnected ? (
         <div
           className="nodrag nopan mt-2 rounded border border-dashed border-neutral-200 bg-neutral-50 px-2 py-2 text-[11px] text-neutral-500"
           onPointerDownCapture={(e) => e.stopPropagation()}
