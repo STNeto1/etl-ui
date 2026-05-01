@@ -1,23 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __plannerTest, logPlannerFallback } from "./tabularSqlPlanner";
+import { __plannerTest, logPlannerWarning } from "./tabularSqlPlanner";
 
-describe("logPlannerFallback", () => {
+describe("logPlannerWarning", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
-  it("dedupes repeated fallback logs within ttl", () => {
+  it("dedupes repeated planner warning logs within ttl", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
-    logPlannerFallback("edge e1: planner unsupported, using fallback");
-    logPlannerFallback("edge e1: planner unsupported, using fallback");
+    logPlannerWarning("edge e1: planner unsupported");
+    logPlannerWarning("edge e1: planner unsupported");
     expect(warn).toHaveBeenCalledTimes(1);
 
     vi.setSystemTime(new Date("2026-01-01T00:00:31.000Z"));
-    logPlannerFallback("edge e1: planner unsupported, using fallback");
+    logPlannerWarning("edge e1: planner unsupported");
     expect(warn).toHaveBeenCalledTimes(2);
   });
 });

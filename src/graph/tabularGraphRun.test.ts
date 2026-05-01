@@ -29,4 +29,31 @@ describe("tabularGraphRun strict errors", () => {
     });
     await expect(run.rowSource()).rejects.toBeInstanceOf(TabularExecutionError);
   });
+
+  it("throws TabularExecutionError with planner_null when SQL plan cannot compile", async () => {
+    const edge: Edge = { id: "e2", source: "src", target: "viz" };
+    const nodes: AppNode[] = [
+      {
+        id: "src",
+        type: "dataSource",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Source",
+          csv: null,
+        } as AppNode["data"],
+      } as AppNode,
+    ];
+    const run = createTabularGraphRunForEdge(edge, nodes, [edge]);
+
+    await expect(run.rowSource()).rejects.toMatchObject({
+      name: "TabularExecutionError",
+      detail: {
+        backend: "sql",
+        phase: "compile",
+        edgeId: "e2",
+        reason: "planner_null",
+      },
+    });
+    await expect(run.rowSource()).rejects.toBeInstanceOf(TabularExecutionError);
+  });
 });

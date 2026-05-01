@@ -20,8 +20,8 @@ const TEMPLATE_PLACEHOLDER = /\{\{([\s\S]*?)\}\}/g;
 const NUMERIC_LITERAL_CHARS = /^[-+*/()\d.\s]*$/;
 const PLANNER_DEBUG =
   typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
-const FALLBACK_LOG_TTL_MS = 30_000;
-const fallbackLogSeenAt = new Map<string, number>();
+const PLANNER_WARNING_LOG_TTL_MS = 30_000;
+const plannerWarningLogSeenAt = new Map<string, number>();
 
 type Planned = {
   headers: string[];
@@ -197,7 +197,7 @@ function warnNearHeaderMismatch(
   const set = new Set(availableHeaders);
   const near = findHeaderByNormalizedKey(requestedHeader, set);
   if (near == null || near === requestedHeader) return;
-  logPlannerFallback(`${context}: requested "${requestedHeader}" but found "${near}"`);
+  logPlannerWarning(`${context}: requested "${requestedHeader}" but found "${near}"`);
 }
 
 function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): string | null {
@@ -866,7 +866,11 @@ async function planNode(
         const branchId = branch.id?.trim() ?? "";
         if (!branchId) continue;
         const applicable = rulesApplicableToHeaders(branch.rules ?? [], headers);
-        if (applicable.length === 0) continue;
+        if (applicable.length === 0) {
+          // Match JS rowPassesRules behavior: no applicable rules means every row matches.
+          branchConds.set(branchId, "TRUE");
+          continue;
+        }
         const joiner = (branch.combineAll ?? true) ? " AND " : " OR ";
         const cond = applicable.map((r) => `(${filterRuleSql(r)})`).join(joiner);
         if (cond.trim().length === 0) continue;
@@ -1180,21 +1184,21 @@ export async function canPlanSqlForEdge(
   return true;
 }
 
-export function logPlannerFallback(reason: string): void {
+export function logPlannerWarning(reason: string): void {
   const now = Date.now();
-  const last = fallbackLogSeenAt.get(reason);
-  if (last != null && now - last < FALLBACK_LOG_TTL_MS) {
+  const last = plannerWarningLogSeenAt.get(reason);
+  if (last != null && now - last < PLANNER_WARNING_LOG_TTL_MS) {
     return;
   }
-  fallbackLogSeenAt.set(reason, now);
-  if (fallbackLogSeenAt.size > 512) {
-    for (const [key, seenAt] of fallbackLogSeenAt) {
-      if (now - seenAt >= FALLBACK_LOG_TTL_MS) {
-        fallbackLogSeenAt.delete(key);
+  plannerWarningLogSeenAt.set(reason, now);
+  if (plannerWarningLogSeenAt.size > 512) {
+    for (const [key, seenAt] of plannerWarningLogSeenAt) {
+      if (now - seenAt >= PLANNER_WARNING_LOG_TTL_MS) {
+        plannerWarningLogSeenAt.delete(key);
       }
     }
   }
-  console.warn(`[duckdb-planner-fallback] ${reason}`);
+  console.warn(`[duckdb-planner-warning] ${reason}`);
 }
 
 export const __plannerTest = {
