@@ -7,6 +7,8 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from "react";
+import { useMachine } from "@xstate/react";
+import { assign, fromCallback, setup } from "xstate";
 import Papa from "papaparse";
 import { Handle, Position, useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
 import {
@@ -39,6 +41,157 @@ import { inferColumnTypes } from "./inferCsvColumnTypes";
 import { HttpKvRows } from "./components/HttpKvRows";
 
 type SourceTab = "load" | "url" | "types";
+
+type HttpLifecycleContext = {
+  tab: SourceTab;
+  httpUrl: string;
+  httpParams: HttpFetchKv[];
+  httpAutoRefreshSec: number;
+  httpAutoRefreshPaused: boolean;
+  resolvedUrlPreview: string;
+  refreshToken: number;
+};
+
+type HttpLifecycleEvent =
+  | {
+      type: "SYNC";
+      tab: SourceTab;
+      httpUrl: string;
+      httpParams: HttpFetchKv[];
+      httpAutoRefreshSec: number;
+      httpAutoRefreshPaused: boolean;
+    }
+  | { type: "AUTO_TICK" }
+  | { type: "REFRESH_REQUESTED" };
+
+const httpLifecycleMachine = setup({
+  types: {
+    context: {} as HttpLifecycleContext,
+    events: {} as HttpLifecycleEvent,
+  },
+  actors: {
+    autoRefreshTicker: fromCallback(({ sendBack, input }: { sendBack: (event: HttpLifecycleEvent) => void; input: HttpLifecycleContext }) => {
+      const timer = window.setInterval(() => {
+        sendBack({ type: "AUTO_TICK" });
+      }, input.httpAutoRefreshSec * 1000);
+      return () => window.clearInterval(timer);
+    }),
+  },
+  guards: {
+    shouldAutoRefresh: ({ context }) =>
+      context.tab === "url" && context.httpAutoRefreshSec > 0 && !context.httpAutoRefreshPaused,
+  },
+  actions: {
+    syncContext: assign(({ context, event }) => {
+      if (event.type !== "SYNC") return context;
+      return {
+        ...context,
+        tab: event.tab,
+        httpUrl: event.httpUrl,
+        httpParams: event.httpParams,
+        httpAutoRefreshSec: event.httpAutoRefreshSec,
+        httpAutoRefreshPaused: event.httpAutoRefreshPaused,
+      };
+    }),
+    resolvePreview: assign(({ context }) => {
+      const built = buildRequestUrl(context.httpUrl, context.httpParams);
+      return {
+        ...context,
+        resolvedUrlPreview: "error" in built ? built.error : built.url,
+      };
+    }),
+    requestRefresh: assign(({ context }) => ({ ...context, refreshToken: context.refreshToken + 1 })),
+  },
+}).createMachine({
+  id: "dataSourceHttpLifecycle",
+  type: "parallel",
+  context: {
+    tab: "load",
+    httpUrl: "",
+    httpParams: [],
+    httpAutoRefreshSec: 0,
+    httpAutoRefreshPaused: false,
+    resolvedUrlPreview: "",
+    refreshToken: 0,
+  },
+  states: {
+    preview: {
+      initial: "debouncing",
+      states: {
+        stable: {
+          on: {
+            SYNC: {
+              target: "debouncing",
+              actions: "syncContext",
+            },
+          },
+        },
+        debouncing: {
+          on: {
+            SYNC: {
+              target: "debouncing",
+              reenter: true,
+              actions: "syncContext",
+            },
+          },
+          after: {
+            280: {
+              target: "stable",
+              actions: "resolvePreview",
+            },
+          },
+        },
+      },
+    },
+    autoRefresh: {
+      initial: "inactive",
+      on: {
+        REFRESH_REQUESTED: {
+          actions: "requestRefresh",
+        },
+      },
+      states: {
+        inactive: {
+          on: {
+            SYNC: [
+              {
+                guard: "shouldAutoRefresh",
+                target: "active",
+                actions: "syncContext",
+              },
+              {
+                actions: "syncContext",
+              },
+            ],
+          },
+        },
+        active: {
+          invoke: {
+            src: "autoRefreshTicker",
+            input: ({ context }) => context,
+          },
+          on: {
+            AUTO_TICK: {
+              actions: "requestRefresh",
+            },
+            SYNC: [
+              {
+                guard: "shouldAutoRefresh",
+                target: "active",
+                reenter: true,
+                actions: "syncContext",
+              },
+              {
+                target: "inactive",
+                actions: "syncContext",
+              },
+            ],
+          },
+        },
+      },
+    },
+  },
+});
 
 function newHttpKv(): HttpFetchKv {
   return { id: crypto.randomUUID(), key: "", value: "" };
@@ -152,9 +305,11 @@ function payloadFromParseResult(result: Papa.ParseResult<Record<string, string>>
 export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
   const { setNodes, setEdges } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const httpRefreshRef = useRef<(() => Promise<void>) | null>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<SourceTab>("load");
   const [parsePreviewBody, setParsePreviewBody] = useState<string | null>(null);
+  const [httpLifecycleState, sendHttpLifecycle] = useMachine(httpLifecycleMachine);
   /** Last file read from disk (for re-parsing .json when JSON array path changes). */
   const lastLocalFileRef = useRef<{ name: string; text: string } | null>(null);
 
@@ -469,15 +624,6 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
   const httpAutoRefreshSec = data.httpAutoRefreshSec ?? 0;
   const httpAutoRefreshPaused = data.httpAutoRefreshPaused ?? false;
 
-  const [resolvedUrlPreview, setResolvedUrlPreview] = useState<string>("");
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      const built = buildRequestUrl(httpUrl, httpParams);
-      setResolvedUrlPreview("error" in built ? built.error : built.url);
-    }, 280);
-    return () => window.clearTimeout(t);
-  }, [httpUrl, httpParams]);
-
   const onHttpRefresh = useCallback(async () => {
     const built = buildRequestUrl(httpUrl, httpParams);
     if ("error" in built) {
@@ -566,18 +712,34 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
     setEdges,
   ]);
 
-  const httpRefreshRef = useRef(onHttpRefresh);
   useEffect(() => {
     httpRefreshRef.current = onHttpRefresh;
   }, [onHttpRefresh]);
 
   useEffect(() => {
-    if (tab !== "url" || httpAutoRefreshSec <= 0 || httpAutoRefreshPaused) return;
-    const id = window.setInterval(() => {
-      void httpRefreshRef.current();
-    }, httpAutoRefreshSec * 1000);
-    return () => window.clearInterval(id);
-  }, [tab, httpAutoRefreshPaused, httpAutoRefreshSec]);
+    sendHttpLifecycle({
+      type: "SYNC",
+      tab,
+      httpUrl,
+      httpParams,
+      httpAutoRefreshSec,
+      httpAutoRefreshPaused,
+    });
+  }, [
+    httpAutoRefreshPaused,
+    httpAutoRefreshSec,
+    httpParams,
+    httpUrl,
+    sendHttpLifecycle,
+    tab,
+  ]);
+
+  useEffect(() => {
+    if (httpLifecycleState.context.refreshToken <= 0) return;
+    void httpRefreshRef.current?.();
+  }, [httpLifecycleState.context.refreshToken]);
+
+  const resolvedUrlPreview = httpLifecycleState.context.resolvedUrlPreview;
 
   const addHttpParam = useCallback(() => {
     patchData({ httpParams: [...httpParams, newHttpKv()] });
@@ -858,7 +1020,7 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !busy) {
                   e.preventDefault();
-                  void onHttpRefresh();
+                  sendHttpLifecycle({ type: "REFRESH_REQUESTED" });
                 }
               }}
               aria-label="HTTP request URL"
@@ -996,7 +1158,7 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
             <button
               type="button"
               disabled={busy}
-              onClick={() => void onHttpRefresh()}
+              onClick={() => sendHttpLifecycle({ type: "REFRESH_REQUESTED" })}
               className="min-w-0 flex-1 rounded border border-neutral-400 bg-neutral-100 py-1.5 text-[11px] font-medium text-neutral-800 hover:bg-neutral-200 disabled:opacity-50"
             >
               {busy ? "Fetching…" : "Refresh"}
