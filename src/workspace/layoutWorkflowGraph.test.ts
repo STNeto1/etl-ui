@@ -63,10 +63,7 @@ describe("layoutWorkflowGraph", () => {
     expect(out).not.toBeNull();
     const byId = new Map(out!.map((n) => [n.id, n]));
 
-    const comp1Right = Math.max(
-      byId.get("s1")!.position.x + 320,
-      byId.get("f1")!.position.x + 320,
-    );
+    const comp1Right = Math.max(byId.get("s1")!.position.x + 320, byId.get("f1")!.position.x + 320);
     const comp2Left = Math.min(byId.get("s2")!.position.x, byId.get("f2")!.position.x);
     expect(comp2Left - comp1Right).toBeGreaterThanOrEqual(40);
   });

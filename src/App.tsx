@@ -127,8 +127,14 @@ function FlowWorkspace() {
   const [resetSourceToo, setResetSourceToo] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkspaceTemplateId>("starter");
-  const { screenToFlowPosition, fitView, deleteElements, getNodes, getEdges, setNodes: setRfNodes } =
-    useReactFlow<AppNode, Edge>();
+  const {
+    screenToFlowPosition,
+    fitView,
+    deleteElements,
+    getNodes,
+    getEdges,
+    setNodes: setRfNodes,
+  } = useReactFlow<AppNode, Edge>();
 
   const {
     undo,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { getPreviewForEdgeAsync, getRowCountForEdgeAsync } from "../graph/tabularOutput";
 import type {
@@ -31,6 +32,8 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
   const requestedRows = data.previewRows ?? DEFAULT_PREVIEW_ROWS;
   const [resolution, setResolution] = useState<VizResolution>({ kind: "loading" });
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExploreOpen, setIsExploreOpen] = useState(false);
+  const [wrapCells, setWrapCells] = useState(false);
   const hasReadyResolutionRef = useRef(false);
   const requestSeqRef = useRef(0);
 
@@ -187,6 +190,17 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
     [patchData, requestedRows, totalRows],
   );
 
+  useEffect(() => {
+    if (!isExploreOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsExploreOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isExploreOpen]);
+
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
@@ -271,6 +285,13 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
                     ({rowsBeforeFilter} before filter)
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setIsExploreOpen(true)}
+                  className="nodrag nopan ml-auto rounded border border-neutral-300 bg-white px-1.5 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100"
+                >
+                  Explore
+                </button>
               </div>
               <table className="w-full border-collapse text-left text-[11px]">
                 <thead>
@@ -312,6 +333,127 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
         </p>
       )}
       <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+
+      {isExploreOpen &&
+        resolution.kind === "ready" &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="nodrag nopan fixed inset-0 z-[9999] flex items-center justify-center bg-neutral-900/45 px-3 py-6"
+            onClick={() => setIsExploreOpen(false)}
+          >
+            <div
+              className="nodrag nopan flex w-[min(92vw,860px)] max-w-215 flex-col overflow-hidden rounded-xl border border-neutral-300 bg-white shadow-xl"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Explore visualization data"
+              onClick={(event) => event.stopPropagation()}
+              onPointerDownCapture={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center gap-2 border-b border-neutral-200 bg-neutral-50/90 px-3 py-2 text-xs text-neutral-700">
+                <span className="text-sm font-semibold text-neutral-800">Explore data</span>
+                <span className="text-neutral-400">|</span>
+                <span className="shrink-0 font-medium text-neutral-700">Rows</span>
+                <button
+                  type="button"
+                  aria-label="Show one fewer row"
+                  disabled={totalRows === 0 || effectiveRowCount <= 1}
+                  onClick={() => bumpRows(-1)}
+                  className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={Math.max(1, totalRows ?? MAX_PREVIEW_ROWS)}
+                  value={effectiveRowCount}
+                  onChange={onRowsInputChange}
+                  disabled={totalRows === 0}
+                  className="nodrag nopan w-16 rounded border border-neutral-300 bg-white px-1 py-0.5 text-center text-neutral-900 [appearance:textfield] disabled:opacity-40 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                />
+                <button
+                  type="button"
+                  aria-label="Show one more row"
+                  disabled={
+                    totalRows === 0 || (totalRows != null && effectiveRowCount >= totalRows)
+                  }
+                  onClick={() => bumpRows(1)}
+                  className="rounded border border-neutral-300 bg-white px-1.5 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  +
+                </button>
+                <span className="text-neutral-400">/ {totalRows != null ? totalRows : "…"}</span>
+                <label className="ml-auto inline-flex items-center gap-1.5 text-[11px] text-neutral-700">
+                  <input
+                    type="checkbox"
+                    checked={wrapCells}
+                    onChange={(event) => setWrapCells(event.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-neutral-300"
+                  />
+                  Wrap cells
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setIsExploreOpen(false)}
+                  className="rounded border border-neutral-300 bg-white px-2 py-0.5 font-medium text-neutral-800 hover:bg-neutral-100"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="max-h-[58vh] overflow-auto">
+                {totalRows === 0 ? (
+                  <p className="p-3 text-xs text-neutral-500">
+                    {viaFilter && rowsBeforeFilter != null && rowsBeforeFilter > 0
+                      ? "No rows match the upstream filter."
+                      : "No data rows in the upstream output."}
+                  </p>
+                ) : (
+                  <table className="w-full border-collapse text-left text-xs">
+                    <thead>
+                      <tr className="sticky top-0 border-b border-neutral-200 bg-neutral-50 text-neutral-700">
+                        {headers.map((h) => (
+                          <th key={h} className="whitespace-nowrap px-2 py-1.5 font-semibold">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((row, i) => (
+                        <tr key={i} className="border-b border-neutral-100 last:border-b-0">
+                          {headers.map((h) => (
+                            <td
+                              key={h}
+                              title={row[h]}
+                              className={
+                                wrapCells
+                                  ? "px-2 py-1.5 whitespace-pre-wrap break-words text-neutral-800"
+                                  : "max-w-[320px] truncate px-2 py-1.5 text-neutral-800"
+                              }
+                            >
+                              {row[h] ?? ""}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              <p className="border-t border-neutral-200 px-3 py-1.5 text-[11px] text-neutral-500">
+                Showing {previewRows.length}
+                {totalRows != null ? ` of ${totalRows}` : " (capped preview)"} row
+                {(totalRows ?? previewRows.length) === 1 ? "" : "s"} from upstream
+                {viaFilter ? " (after filter)" : " (pass-through)"}.
+                {isRefreshing ? " Refreshing..." : ""}
+              </p>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
