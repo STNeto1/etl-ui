@@ -102,13 +102,38 @@ class NodeAsyncDuckDB {
         // Ignore errors
       }
       this.registeredFiles.delete(name);
+    } else {
+      // Also try to clean up from temp dir or CWD if not registered
+      const tempPath = path.join(this.tempDir, name);
+      const cwdPath = path.resolve(name);
+      for (const p of [tempPath, cwdPath]) {
+        try {
+          if (fs.existsSync(p)) {
+            fs.unlinkSync(p);
+          }
+        } catch {
+          // Ignore errors
+        }
+      }
     }
   }
 
   async copyFileToBuffer(name: string): Promise<Uint8Array> {
-    const filePath = this.registeredFiles.get(name);
+    let filePath = this.registeredFiles.get(name);
+    // If not in registered files, check temp directory and current working directory
     if (!filePath) {
-      throw new Error(`File not found: ${name}`);
+      const tempPath = path.join(this.tempDir, name);
+      if (fs.existsSync(tempPath)) {
+        filePath = tempPath;
+      } else {
+        // Check current working directory (where COPY writes by default)
+        const cwdPath = path.resolve(name);
+        if (fs.existsSync(cwdPath)) {
+          filePath = cwdPath;
+        } else {
+          throw new Error(`File not found: ${name} (checked ${tempPath} and ${cwdPath})`);
+        }
+      }
     }
     const buffer = fs.readFileSync(filePath);
     return new Uint8Array(buffer);

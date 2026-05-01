@@ -9,12 +9,10 @@ describe("tabularGraphRun strict errors", () => {
     const nodes: AppNode[] = [
       {
         id: "src",
-        type: "unnestArray",
+        type: "download",
         position: { x: 0, y: 0 },
         data: {
-          label: "Unnest",
-          column: "items",
-          primitiveOutputColumn: "item",
+          label: "Download",
         } as AppNode["data"],
       } as AppNode,
     ];

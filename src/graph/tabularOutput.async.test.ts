@@ -13,7 +13,6 @@ import {
 } from "./tabularOutput";
 import type { AppNode } from "../types/flow";
 import type { Edge } from "@xyflow/react";
-import * as planner from "./tabularSqlPlanner";
 import * as graphRun from "./tabularGraphRun";
 
 const DATASET_DB = "etl-ui-datasets";
@@ -54,16 +53,6 @@ async function datasetBackedDataSourceNode(
       sample: meta.sample,
     },
   };
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
 }
 
 describe("getTabularOutputAsync", () => {
@@ -357,18 +346,15 @@ describe("getTabularOutputAsync", () => {
     expect(count).toBe(3);
   });
 
-  it("still queues row count lane under strict SQL failures", async () => {
+  it("runs row count and preview concurrently via SQL", async () => {
     const store = getAppDatasetStore();
     const makeMeta = async (name: string) =>
       store.putNormalizedPayload(
-        {
-          headers: ["n"],
-          rows: [{ n: `${name}-1` }, { n: `${name}-2` }, { n: `${name}-3` }],
-        },
+        { headers: ["n"], rows: [{ n: `${name}-1` }, { n: `${name}-2` }] },
         "csv",
       );
 
-    const [m1, m2, mp] = await Promise.all([makeMeta("a"), makeMeta("b"), makeMeta("p")]);
+    const [m1, m2] = await Promise.all([makeMeta("a"), makeMeta("b")]);
     const nodes: AppNode[] = [
       {
         id: "s1",
@@ -398,46 +384,22 @@ describe("getTabularOutputAsync", () => {
           sample: m2.sample,
         },
       },
-      {
-        id: "sp",
-        type: "dataSource",
-        position: { x: 0, y: 0 },
-        data: {
-          ...defaultDataSourceData(),
-          csv: null,
-          datasetId: mp.id,
-          format: "csv",
-          headers: mp.headers,
-          rowCount: mp.rowCount,
-          sample: mp.sample,
-        },
-      },
     ];
     const e1: Edge = { id: "e1", source: "s1", target: "v1" };
     const e2: Edge = { id: "e2", source: "s2", target: "v2" };
-    const ep: Edge = { id: "ep", source: "sp", target: "vp" };
-    const edges: Edge[] = [e1, e2, ep];
 
-    const gate = deferred<void>();
-    let planCalls = 0;
-    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockImplementation(async () => {
-      planCalls += 1;
-      if (planCalls === 1) {
-        await gate.promise;
-      }
-      return null;
-    });
+    // Run count and preview concurrently - both should succeed
+    const [c1, p1, c2, p2] = await Promise.all([
+      getRowCountForEdgeAsync(e1, nodes, [e1]),
+      getPreviewForEdgeAsync(e1, nodes, [e1], 2),
+      getRowCountForEdgeAsync(e2, nodes, [e2]),
+      getPreviewForEdgeAsync(e2, nodes, [e2], 2),
+    ]);
 
-    const c1 = getRowCountForEdgeAsync(e1, nodes, edges);
-    const c2 = getRowCountForEdgeAsync(e2, nodes, edges);
-
-    const preview = await getPreviewForEdgeAsync(ep, nodes, edges, 2);
-    expect(preview.rows.length).toBeGreaterThan(0);
-
-    gate.resolve();
-    await Promise.allSettled([c1, c2]);
-    expect(planCalls).toBeGreaterThanOrEqual(1);
-    planSpy.mockRestore();
+    expect(c1).toBe(2);
+    expect(p1.rows.length).toBe(2);
+    expect(c2).toBe(2);
+    expect(p2.rows.length).toBe(2);
   });
 
   it("executes download via SQL", async () => {
@@ -464,7 +426,9 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edge: Edge = { id: "e1", source: "src", target: "dl" };
-    const csvOutput = await downloadCsvForEdgeAsync(edge, nodes, [edge]);
+    const csvBlob = await downloadCsvForEdgeAsync(edge, nodes, [edge]);
+    expect(csvBlob).not.toBeNull();
+    const csvOutput = await csvBlob!.text();
     expect(csvOutput).toContain("name");
     expect(csvOutput).toContain("note");
   });

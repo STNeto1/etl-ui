@@ -39,6 +39,7 @@ function nodeIsSqlCapable(node: TabularGraphIrNode): boolean {
       return mode === "pivot" || mode === "unpivot";
     }
     case "unnestArray":
+      return true;
     case "download":
       return false;
     default:

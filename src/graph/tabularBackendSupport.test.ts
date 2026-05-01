@@ -43,14 +43,14 @@ describe("chooseTabularBackendForEdge", () => {
         data: { headers: ["n"], csv: { headers: ["n"], rows: [{ n: "1" }] } } as AppNode["data"],
       } as AppNode,
       {
-        id: "un",
-        type: "unnestArray",
+        id: "dl",
+        type: "download",
         position: { x: 0, y: 0 },
-        data: { label: "Unnest", column: "n", primitiveOutputColumn: "value" } as AppNode["data"],
+        data: { label: "Download" } as AppNode["data"],
       } as AppNode,
     ];
-    const e1: Edge = { id: "e1", source: "src", target: "un" };
-    const e2: Edge = { id: "e2", source: "un", target: "viz" };
+    const e1: Edge = { id: "e1", source: "src", target: "dl" };
+    const e2: Edge = { id: "e2", source: "dl", target: "viz" };
     await expect(chooseTabularBackendForEdge(e2, nodes, [e1, e2])).rejects.toThrow(
       "sql backend unsupported",
     );

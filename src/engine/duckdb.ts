@@ -50,7 +50,15 @@ function formatError(value: unknown): string {
 }
 
 function isTestRuntime(): boolean {
-  return typeof process !== "undefined" && process.env?.VITEST === "true";
+  // Check multiple indicators that we're running in a test environment
+  return (
+    (typeof process !== "undefined" && process.env?.VITEST === "true") ||
+    (typeof import.meta !== "undefined" && import.meta.env?.MODE === "test") ||
+    // Check for vitest globals
+    (typeof globalThis !== "undefined" && "vi" in globalThis) ||
+    // Check for Node.js test runner indicators
+    (typeof process !== "undefined" && process.env?.NODE_ENV === "test")
+  );
 }
 
 async function bootstrap(): Promise<duckdb.AsyncDuckDB> {

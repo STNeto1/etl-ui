@@ -578,14 +578,24 @@ export function createDatasetStore(): DatasetStore {
       if (row == null) throw new Error(`dataset ${id} not found`);
       row = await materializeCanonicalParquetIfNeeded(row);
       const db = await getDuckDb();
+
       if (row.meta.canonicalParquetOpfsRelPath != null) {
         const pq = await readOpfsParquetFile(id);
         if (pq != null) {
           const fileName = `dataset-${id}.parquet`;
           await db.registerFileHandle(fileName, pq, DuckDBDataProtocol.BROWSER_FILEREADER, false);
+
+          let filePathForSql = fileName;
+          // Always check if we have the getRegisteredFilePath method (Node.js adapter)
+          // @ts-ignore - getRegisteredFilePath exists in Node.js adapter
+          const absolutePath = db.getRegisteredFilePath?.(fileName);
+          if (absolutePath) {
+            filePathForSql = absolutePath;
+          }
+
           const cached: CachedSqlSource = {
             headers: [...(row.meta.headers ?? [])],
-            fromSql: `read_parquet(${quoteSqlString(fileName)})`,
+            fromSql: `read_parquet(${quoteSqlString(filePathForSql)})`,
           };
           sqlSourceByDatasetId.set(id, cached);
           return cached;
@@ -608,12 +618,11 @@ export function createDatasetStore(): DatasetStore {
 
       // In Node.js test environment, use absolute path for file access
       let filePathForSql = fileName;
-      if (typeof process !== "undefined" && process.env?.VITEST === "true") {
-        // @ts-ignore - getRegisteredFilePath exists in Node.js adapter
-        const absolutePath = db.getRegisteredFilePath?.(fileName);
-        if (absolutePath) {
-          filePathForSql = absolutePath;
-        }
+      // Always check if we have the getRegisteredFilePath method (Node.js adapter)
+      // @ts-ignore - getRegisteredFilePath exists in Node.js adapter
+      const absolutePath = db.getRegisteredFilePath?.(fileName);
+      if (absolutePath) {
+        filePathForSql = absolutePath;
       }
 
       const cached: CachedSqlSource = {

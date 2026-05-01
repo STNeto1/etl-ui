@@ -747,7 +747,28 @@ async function planNode(
       };
     }
     case "unnestArray": {
-      return null;
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+
+      const column = (node.data.column ?? "").trim();
+      const outputColumn = (node.data.primitiveOutputColumn ?? "").trim() || column;
+
+      if (!column || !up.headers.includes(column)) return null;
+      if (!outputColumn) return null;
+
+      const otherHeaders = up.headers.filter((h) => h !== column);
+      const headers = [...otherHeaders, outputColumn];
+
+      const otherProj = otherHeaders.map((h) => quoteSqlIdent(h)).join(", ");
+      const unnestProj = otherProj ? `${otherProj}, ` : "";
+
+      return {
+        headers,
+        sql: `SELECT ${unnestProj}UNNEST(${quoteSqlIdent(column)}) AS ${quoteSqlIdent(outputColumn)} FROM (${up.sql})`,
+        cleanup: up.cleanup,
+      };
     }
     case "join": {
       const leftEdge = edges.find(
@@ -1090,7 +1111,9 @@ export async function runCopyToCsvBuffer(planned: PlannedSqlQuery): Promise<Uint
   const db = await getDuckDb();
   const conn = await db.connect();
   const outName = `export-${crypto.randomUUID()}.csv`;
+
   try {
+    // Use relative path for COPY output - DuckDB will write to its working directory
     await conn.query(`COPY (${planned.sql}) TO ${quoteSqlString(outName)} (FORMAT CSV, HEADER)`);
     return await db.copyFileToBuffer(outName);
   } finally {
