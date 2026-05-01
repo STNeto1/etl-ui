@@ -30,7 +30,7 @@ describe("chooseTabularBackendForEdge", () => {
     planSpy.mockRestore();
   });
 
-  it("throws from IR support matrix without planning", async () => {
+  it("chooses sql for download pass-through chain", async () => {
     const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue({
       headers: ["n"],
       sql: "select 1",
@@ -41,7 +41,15 @@ describe("chooseTabularBackendForEdge", () => {
         id: "src",
         type: "dataSource",
         position: { x: 0, y: 0 },
-        data: { headers: ["n"], csv: { headers: ["n"], rows: [{ n: "1" }] } } as AppNode["data"],
+        data: {
+          ...defaultDataSourceData(),
+          csv: null,
+          datasetId: "dataset-test",
+          format: "csv",
+          headers: ["n"],
+          rowCount: 1,
+          sample: [{ n: "1" }],
+        },
       } as AppNode,
       {
         id: "dl",
@@ -52,10 +60,8 @@ describe("chooseTabularBackendForEdge", () => {
     ];
     const e1: Edge = { id: "e1", source: "src", target: "dl" };
     const e2: Edge = { id: "e2", source: "dl", target: "viz" };
-    await expect(chooseTabularBackendForEdge(e2, nodes, [e1, e2])).rejects.toThrow(
-      "sql backend unsupported",
-    );
-    expect(planSpy).toHaveBeenCalledTimes(0);
+    await expect(chooseTabularBackendForEdge(e2, nodes, [e1, e2])).resolves.toBe("sql");
+    expect(planSpy).toHaveBeenCalledTimes(1);
     planSpy.mockRestore();
   });
 

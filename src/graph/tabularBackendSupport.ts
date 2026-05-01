@@ -32,17 +32,15 @@ function nodeIsSqlCapable(node: TabularGraphIrNode): boolean {
     case "mergeUnion":
     case "deduplicate":
     case "constantColumn":
-      return true;
+    case "download":
     case "limitSample":
-      return (node.data as { limitSampleMode?: string }).limitSampleMode === "first";
+      return true;
     case "pivotUnpivot": {
       const mode = (node.data as { pivotUnpivotMode?: string }).pivotUnpivotMode ?? "unpivot";
       return mode === "pivot" || mode === "unpivot";
     }
     case "unnestArray":
       return true;
-    case "download":
-      return false;
     default:
       return false;
   }

@@ -435,6 +435,27 @@ describe("getTabularOutputAsync", () => {
     expect(csvOutput).toContain("note");
   });
 
+  it("resolves download node output via SQL pass-through", async () => {
+    const nodes: AppNode[] = [
+      await datasetBackedDataSourceNode("src", {
+        headers: ["n"],
+        rows: [{ n: "1" }, { n: "2" }],
+      }),
+      {
+        id: "dl",
+        type: "download",
+        position: { x: 0, y: 0 },
+        data: { label: "Download", fileName: "export.csv" },
+      },
+    ];
+    const edges: Edge[] = [{ id: "e1", source: "src", target: "dl" }];
+    const rowSource = await getTabularOutputAsync("dl", nodes, edges);
+    expect(rowSource).not.toBeNull();
+    const payload = await collectRowSourceToPayload(rowSource!);
+    expect(payload.headers).toEqual(["n"]);
+    expect(payload.rows).toHaveLength(2);
+  });
+
   it("reuses a shared graph run session across consumers", async () => {
     const csv = {
       headers: ["n"],
@@ -562,6 +583,34 @@ describe("getTabularOutputAsync", () => {
     const payload = await collectRowSourceToPayload(result!);
     expect(payload.headers).toEqual(["country", "name"]);
     expect(payload.rows).toHaveLength(3);
+  });
+
+  it("executes limitSample random mode via SQL", async () => {
+    const src = await datasetBackedDataSourceNode("src", {
+      headers: ["n"],
+      rows: Array.from({ length: 10 }, (_, i) => ({ n: String(i + 1) })),
+    });
+    const nodes: AppNode[] = [
+      src,
+      {
+        id: "ls",
+        type: "limitSample",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "LimitSample",
+          limitSampleMode: "random",
+          rowCount: 4,
+          randomSeed: 42,
+        },
+      },
+    ];
+    const edges: Edge[] = [{ id: "e1", source: "src", target: "ls" }];
+
+    const a = await collectRowSourceToPayload((await getTabularOutputAsync("ls", nodes, edges))!);
+    const b = await collectRowSourceToPayload((await getTabularOutputAsync("ls", nodes, edges))!);
+    expect(a.headers).toEqual(["n"]);
+    expect(a.rows).toHaveLength(4);
+    expect(b.rows).toEqual(a.rows);
   });
 
   it("executes cast via SQL", async () => {

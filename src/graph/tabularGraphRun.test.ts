@@ -9,10 +9,10 @@ describe("tabularGraphRun strict errors", () => {
     const nodes: AppNode[] = [
       {
         id: "src",
-        type: "download",
+        type: "unsupportedOp" as AppNode["type"],
         position: { x: 0, y: 0 },
         data: {
-          label: "Download",
+          label: "Unsupported",
         } as AppNode["data"],
       } as AppNode,
     ];

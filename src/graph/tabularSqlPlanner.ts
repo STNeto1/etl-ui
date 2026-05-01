@@ -906,13 +906,28 @@ async function planNode(
       if (inEdge == null) return null;
       const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
       if (up == null) return null;
-      if (node.data.limitSampleMode !== "first") return null;
+      const mode = node.data.limitSampleMode ?? "first";
       const n = Math.max(0, Math.floor(node.data.rowCount ?? 0));
+      if (mode === "first") {
+        return {
+          headers: up.headers,
+          sql: `SELECT ${selectAll(up.headers)} FROM (${up.sql}) LIMIT ${n}`,
+          cleanup: up.cleanup,
+        };
+      }
+      const seed = Math.floor(node.data.randomSeed ?? 0);
+      const withIndex = `SELECT ${selectAll(up.headers)}, ROW_NUMBER() OVER () AS __sample_idx FROM (${up.sql})`;
+      const sampled = `SELECT ${selectAll(up.headers)}, __sample_idx FROM (${withIndex}) ORDER BY HASH(${quoteSqlString(String(seed))} || ':' || CAST(__sample_idx AS VARCHAR)) LIMIT ${n}`;
       return {
         headers: up.headers,
-        sql: `SELECT ${selectAll(up.headers)} FROM (${up.sql}) LIMIT ${n}`,
+        sql: `SELECT ${selectAll(up.headers)} FROM (${sampled}) ORDER BY __sample_idx`,
         cleanup: up.cleanup,
       };
+    }
+    case "download": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      return planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
     }
     case "mergeUnion": {
       const inEdges = incoming(nodeId, edges);
