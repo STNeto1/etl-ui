@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
+import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { resetAppDatasetStoreForTests } from "../dataset/appDatasetStore";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { defaultDataSourceData } from "../types/flow";
 import {
   __clearTabularGraphRunSessionCacheForTests,
+  collectRowSourceToPayload,
   downloadCsvForEdgeAsync,
   getPreviewForEdgeAsync,
   getRowCountForEdgeAsync,
@@ -514,6 +516,52 @@ describe("getTabularOutputAsync", () => {
 
     const resultD = await getTabularOutputAsync("vizd", nodes, edges);
     expect(resultD.headers).toContain("name");
+  });
+
+  it("executes merge input chain from conditional branches via SQL", async () => {
+    const src = await datasetBackedDataSourceNode("src", {
+      headers: ["country", "name"],
+      rows: [
+        { country: "Chile", name: "Sheryl" },
+        { country: "US", name: "Ada" },
+        { country: "Chile", name: "Roy" },
+      ],
+    });
+    const nodes: AppNode[] = [
+      src,
+      {
+        id: "cond",
+        type: "conditional",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Conditional",
+          combineAll: true,
+          rules: [{ id: "r1", column: "country", op: "eq", value: "Chile" }],
+        },
+      },
+      {
+        id: "merge",
+        type: "mergeUnion",
+        position: { x: 0, y: 0 },
+        data: {
+          label: "Merge",
+          dedupeEnabled: false,
+          dedupeMode: "fullRow",
+          dedupeKeys: [],
+        },
+      },
+    ];
+    const edges: Edge[] = [
+      { id: "e1", source: "src", target: "cond" },
+      { id: "e2", source: "cond", sourceHandle: CONDITIONAL_IF_HANDLE, target: "merge" },
+      { id: "e3", source: "cond", sourceHandle: CONDITIONAL_ELSE_HANDLE, target: "merge" },
+    ];
+
+    const result = await getTabularOutputAsync("merge", nodes, edges);
+    expect(result).not.toBeNull();
+    const payload = await collectRowSourceToPayload(result!);
+    expect(payload.headers).toEqual(["country", "name"]);
+    expect(payload.rows).toHaveLength(3);
   });
 
   it("executes cast via SQL", async () => {

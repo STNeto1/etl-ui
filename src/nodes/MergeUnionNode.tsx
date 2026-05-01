@@ -25,7 +25,7 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
       const pairs = await Promise.all(
         incoming.map(async (edge) => ({
           sourceId: edge.source,
-          payload: await getTabularPayloadForEdgeAsync(edge, nodes, edges),
+          payload: await getTabularPayloadForEdgeAsync(edge, nodes, edges).catch(() => null),
         })),
       );
       if (!cancelled) setUpstreamPayloads(pairs);

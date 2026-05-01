@@ -1,6 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import { getDuckDb } from "../engine/duckdb";
+import { asConditionalBranchHandle, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
 import { rulesApplicableToHeaders } from "../filter/rowMatches";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
 import { parseSwitchSourceHandle } from "../switch/branches";
@@ -364,6 +365,36 @@ async function planNode(
       return {
         headers: up.headers,
         sql: `SELECT ${selectAll(up.headers)} FROM (${up.sql}) WHERE ${cond}`,
+        cleanup: up.cleanup,
+      };
+    }
+    case "conditional": {
+      const inEdge = singleIncoming(nodeId, edges);
+      if (inEdge == null) return null;
+      const up = await planNode(inEdge.source, inEdge.sourceHandle ?? null, nodes, edges, visited);
+      if (up == null) return null;
+      const applicable = rulesApplicableToHeaders(node.data.rules ?? [], up.headers);
+      const branch = asConditionalBranchHandle(viaSourceHandle);
+      if (applicable.length === 0) {
+        if (branch === CONDITIONAL_IF_HANDLE) return up;
+        return {
+          headers: up.headers,
+          sql: `SELECT ${selectAll(up.headers)} FROM (${up.sql}) WHERE FALSE`,
+          cleanup: up.cleanup,
+        };
+      }
+      const joiner = (node.data.combineAll ?? true) ? " AND " : " OR ";
+      const cond = applicable.map((r) => `(${filterRuleSql(r)})`).join(joiner);
+      if (branch === CONDITIONAL_IF_HANDLE) {
+        return {
+          headers: up.headers,
+          sql: `SELECT ${selectAll(up.headers)} FROM (${up.sql}) WHERE ${cond}`,
+          cleanup: up.cleanup,
+        };
+      }
+      return {
+        headers: up.headers,
+        sql: `SELECT ${selectAll(up.headers)} FROM (${up.sql}) WHERE NOT (${cond})`,
         cleanup: up.cleanup,
       };
     }

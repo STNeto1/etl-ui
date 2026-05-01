@@ -28,6 +28,7 @@ function nodeIsSqlCapable(node: TabularGraphIrNode): boolean {
     case "aggregate":
     case "join":
     case "switch":
+    case "conditional":
     case "mergeUnion":
     case "deduplicate":
     case "constantColumn":
