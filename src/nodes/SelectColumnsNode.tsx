@@ -78,7 +78,7 @@ export function SelectColumnsNode({ id, data }: NodeProps<SelectColumnsNodeType>
           <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-600">
             Columns
           </div>
-          <ul className="mt-1 flex max-h-[150px] flex-col gap-1 overflow-y-auto pr-0.5">
+          <ul className="mt-1 flex max-h-[220px] flex-col gap-1 overflow-y-auto pr-1">
             {headers.map((header) => (
               <li key={header} className="rounded border border-neutral-200 bg-white px-1.5 py-1">
                 <label className="flex items-center gap-2 text-[11px] text-neutral-800">

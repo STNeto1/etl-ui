@@ -70,12 +70,20 @@ const httpLifecycleMachine = setup({
     events: {} as HttpLifecycleEvent,
   },
   actors: {
-    autoRefreshTicker: fromCallback(({ sendBack, input }: { sendBack: (event: HttpLifecycleEvent) => void; input: HttpLifecycleContext }) => {
-      const timer = window.setInterval(() => {
-        sendBack({ type: "AUTO_TICK" });
-      }, input.httpAutoRefreshSec * 1000);
-      return () => window.clearInterval(timer);
-    }),
+    autoRefreshTicker: fromCallback(
+      ({
+        sendBack,
+        input,
+      }: {
+        sendBack: (event: HttpLifecycleEvent) => void;
+        input: HttpLifecycleContext;
+      }) => {
+        const timer = window.setInterval(() => {
+          sendBack({ type: "AUTO_TICK" });
+        }, input.httpAutoRefreshSec * 1000);
+        return () => window.clearInterval(timer);
+      },
+    ),
   },
   guards: {
     shouldAutoRefresh: ({ context }) =>
@@ -100,7 +108,10 @@ const httpLifecycleMachine = setup({
         resolvedUrlPreview: "error" in built ? built.error : built.url,
       };
     }),
-    requestRefresh: assign(({ context }) => ({ ...context, refreshToken: context.refreshToken + 1 })),
+    requestRefresh: assign(({ context }) => ({
+      ...context,
+      refreshToken: context.refreshToken + 1,
+    })),
   },
 }).createMachine({
   id: "dataSourceHttpLifecycle",
@@ -725,14 +736,7 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
       httpAutoRefreshSec,
       httpAutoRefreshPaused,
     });
-  }, [
-    httpAutoRefreshPaused,
-    httpAutoRefreshSec,
-    httpParams,
-    httpUrl,
-    sendHttpLifecycle,
-    tab,
-  ]);
+  }, [httpAutoRefreshPaused, httpAutoRefreshSec, httpParams, httpUrl, sendHttpLifecycle, tab]);
 
   useEffect(() => {
     if (httpLifecycleState.context.refreshToken <= 0) return;
