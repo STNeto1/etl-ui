@@ -168,6 +168,12 @@ function isNumericTemplateExpression(expr: string): boolean {
   return NUMERIC_LITERAL_CHARS.test(nonPlaceholder);
 }
 
+function hasImplicitNumericConcatenation(expr: string): boolean {
+  // Guard unsupported forms such as "{{a}}{{b}}" or "{{a}}2" that are valid string templates
+  // but are not valid arithmetic SQL once placeholders are expanded into SQL expressions.
+  return /\}\}\s*\{\{/.test(expr) || /\}\}\s*[\d.(]/.test(expr) || /[\d).]\s*\{\{/.test(expr);
+}
+
 function normalizeHeaderKey(value: string): string {
   return value
     .trim()
@@ -202,6 +208,7 @@ function warnNearHeaderMismatch(
 
 function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): string | null {
   if (!isNumericTemplateExpression(expr)) return null;
+  if (hasImplicitNumericConcatenation(expr)) return null;
   let usesPlaceholder = false;
   let unsupported = false;
   const substituted = expr.replace(TEMPLATE_PLACEHOLDER, (_, inner: string) => {
@@ -217,7 +224,6 @@ function buildNumericComputeExpr(expr: string, availableHeaders: Set<string>): s
   if (unsupported) return null;
   const trimmed = substituted.trim();
   if (!trimmed) return "''";
-  if (!NUMERIC_LITERAL_CHARS.test(trimmed)) return null;
   if (!usesPlaceholder && !/[\d]/.test(trimmed)) return null;
   return `CASE WHEN TRY_CAST((${trimmed}) AS DOUBLE) IS NULL THEN '' ELSE CAST((${trimmed}) AS VARCHAR) END`;
 }

@@ -100,10 +100,10 @@ describe("getTabularOutputAsync", () => {
   it("executes numeric compute output via SQL", async () => {
     const store = getAppDatasetStore();
     const csv = {
-      headers: ["qty", "price"],
+      headers: ["qty", "price", "amount"],
       rows: [
-        { qty: "2", price: "4" },
-        { qty: "3", price: "10" },
+        { qty: "2", price: "4", amount: "120.50" },
+        { qty: "3", price: "10", amount: "89.00" },
       ],
     };
     const meta = await store.putNormalizedPayload(csv, "csv");
@@ -128,7 +128,10 @@ describe("getTabularOutputAsync", () => {
         position: { x: 0, y: 0 },
         data: {
           label: "Compute",
-          columns: [{ id: "c1", outputName: "line", expression: "{{qty}}*{{price}}" }],
+          columns: [
+            { id: "c1", outputName: "line", expression: "{{qty}}*{{price}}" },
+            { id: "c2", outputName: "amount_times_two", expression: "{{amount}} * 2" },
+          ],
         },
       },
       {
@@ -144,6 +147,13 @@ describe("getTabularOutputAsync", () => {
     ];
     const result = await getTabularOutputAsync("cc", nodes, edges);
     expect(result.headers).toContain("line");
+    expect(result.headers).toContain("amount_times_two");
+    const payload = await collectRowSourceToPayload(result);
+    expect(Number(payload.rows[0]?.line ?? NaN)).toBe(8);
+    expect(Number(payload.rows[1]?.line ?? NaN)).toBe(30);
+    expect(Number(payload.rows[0]?.amount_times_two ?? NaN)).toBe(241);
+    expect(Number(payload.rows[1]?.amount_times_two ?? NaN)).toBe(178);
+    expect(payload.rows[0]?.amount_times_two).not.toContain("*");
   });
 
   it("executes string compute output via SQL", async () => {

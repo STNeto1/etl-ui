@@ -23,6 +23,21 @@ describe("logPlannerWarning", () => {
 });
 
 describe("compute planner helpers", () => {
+  it("builds SQL for numeric templates with arithmetic operators", () => {
+    const expr = __plannerTest.buildNumericComputeExpr("{{amount}} * 2", new Set(["amount"]));
+    expect(expr).not.toBeNull();
+    expect(expr ?? "").toContain("TRY_CAST");
+    expect(expr ?? "").toContain("amount");
+  });
+
+  it("rejects numeric mode for adjacent placeholders without operators", () => {
+    const expr = __plannerTest.buildNumericComputeExpr(
+      "{{FirstName}}{{LastName}}",
+      new Set(["FirstName", "LastName"]),
+    );
+    expect(expr).toBeNull();
+  });
+
   it("builds SQL for string templates", () => {
     const expr = __plannerTest.buildStringComputeExpr(
       "{{First}} {{Last}}",
