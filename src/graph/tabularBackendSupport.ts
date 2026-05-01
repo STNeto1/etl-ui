@@ -3,7 +3,7 @@ import type { AppNode } from "../types/flow";
 import * as planner from "./tabularSqlPlanner";
 import { compileTabularGraphIrForEdge, type TabularGraphIrNode } from "./tabularGraphIr";
 
-export type TabularBackendKind = "sql" | "stream";
+export type TabularBackendKind = "sql";
 
 async function canRunSqlWholeChain(edge: Edge, nodes: AppNode[], edges: Edge[]): Promise<boolean> {
   const planned = await planner.planSqlForEdge(edge, nodes, edges);
@@ -56,7 +56,12 @@ export async function chooseTabularBackendForEdge(
   nodes: AppNode[],
   edges: Edge[],
 ): Promise<TabularBackendKind> {
-  if (!irSupportsSqlWholeChain(edge, nodes, edges)) return "stream";
+  if (!irSupportsSqlWholeChain(edge, nodes, edges)) {
+    throw new Error(`sql backend unsupported for edge ${edge.id}`);
+  }
   const sql = await canRunSqlWholeChain(edge, nodes, edges).catch(() => false);
-  return sql ? "sql" : "stream";
+  if (!sql) {
+    throw new Error(`sql backend not plannable for edge ${edge.id}`);
+  }
+  return "sql";
 }

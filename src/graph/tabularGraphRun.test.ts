@@ -4,7 +4,7 @@ import type { AppNode } from "../types/flow";
 import { createTabularGraphRunForEdge, TabularExecutionError } from "./tabularGraphRun";
 
 describe("tabularGraphRun strict errors", () => {
-  it("throws TabularExecutionError with detail for unresolved stream backend", async () => {
+  it("throws TabularExecutionError with detail for unsupported SQL chain", async () => {
     const edge: Edge = { id: "e1", source: "src", target: "viz" };
     const nodes: AppNode[] = [
       {
@@ -18,16 +18,15 @@ describe("tabularGraphRun strict errors", () => {
         } as AppNode["data"],
       } as AppNode,
     ];
-    const run = createTabularGraphRunForEdge(edge, nodes, [edge], {
-      getRowSource: async () => null,
-    });
+    const run = createTabularGraphRunForEdge(edge, nodes, [edge]);
 
     await expect(run.rowSource()).rejects.toMatchObject({
       name: "TabularExecutionError",
       detail: {
-        backend: "stream",
-        phase: "execute",
+        backend: "sql",
+        phase: "compile",
         edgeId: "e1",
+        reason: "unsupported_op",
       },
     });
     await expect(run.rowSource()).rejects.toBeInstanceOf(TabularExecutionError);

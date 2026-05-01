@@ -5,7 +5,6 @@ import { applyCastToPayload } from "../cast/applyCast";
 import { applyFillReplaceToPayload } from "../fillReplace/applyFillReplace";
 import type { AppNode, CsvPayload } from "../types/flow";
 import { applyHttpColumnRenames } from "./tabularCsvRename";
-import { tryStreamingRowSourceForNode } from "./tabularStreamingRowSource";
 import {
   collectRowSourceToPayload,
   rowSourceFromPayload,
@@ -75,20 +74,7 @@ async function getSharedTabularGraphRunForEdge(
   return executeShared(
     `graphRun:${key}`,
     async () => {
-      const run = createTabularGraphRunForEdge(incomingEdge, nodes, edges, {
-        getRowSource: async () => {
-          const streamed = await tryStreamingRowSourceForNode(
-            incomingEdge.source,
-            incomingEdge.sourceHandle ?? null,
-            nodes,
-            edges,
-          );
-          if (streamed == null) {
-            throw new Error(`stream backend unsupported for edge ${incomingEdge.id}`);
-          }
-          return streamed;
-        },
-      });
+      const run = createTabularGraphRunForEdge(incomingEdge, nodes, edges);
       graphRunSessionCache.set(key, { run, expiresAt: Date.now() + GRAPH_RUN_CACHE_TTL_MS });
       if (graphRunSessionCache.size > 256) {
         for (const [cacheKey, entry] of graphRunSessionCache) {

@@ -19,15 +19,17 @@ describe("chooseTabularBackendForEdge", () => {
     planSpy.mockRestore();
   });
 
-  it("chooses stream when chain is not sql plannable", async () => {
+  it("throws when chain is not sql plannable", async () => {
     const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
     const nodes: AppNode[] = [];
     const edge: Edge = { id: "e1", source: "src", target: "viz" };
-    await expect(chooseTabularBackendForEdge(edge, nodes, [edge])).resolves.toBe("stream");
+    await expect(chooseTabularBackendForEdge(edge, nodes, [edge])).rejects.toThrow(
+      "sql backend not plannable",
+    );
     planSpy.mockRestore();
   });
 
-  it("chooses stream from IR support matrix without planning", async () => {
+  it("throws from IR support matrix without planning", async () => {
     const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue({
       headers: ["n"],
       sql: "select 1",
@@ -49,8 +51,10 @@ describe("chooseTabularBackendForEdge", () => {
     ];
     const e1: Edge = { id: "e1", source: "src", target: "un" };
     const e2: Edge = { id: "e2", source: "un", target: "viz" };
-    await expect(chooseTabularBackendForEdge(e2, nodes, [e1, e2])).resolves.toBe("stream");
-    expect(planSpy).not.toHaveBeenCalled();
+    await expect(chooseTabularBackendForEdge(e2, nodes, [e1, e2])).rejects.toThrow(
+      "sql backend unsupported",
+    );
+    expect(planSpy).toHaveBeenCalledTimes(0);
     planSpy.mockRestore();
   });
 });

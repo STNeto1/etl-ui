@@ -43,10 +43,6 @@ type ReadyState =
 
 let readyState: ReadyState = { kind: "idle" };
 
-function isTestRuntime(): boolean {
-  return typeof process !== "undefined" && process.env?.VITEST === "true";
-}
-
 function formatError(value: unknown): string {
   if (value instanceof Error) return value.message;
   if (typeof value === "string") return value;
@@ -115,4 +111,7 @@ export async function getDuckDb(): Promise<duckdb.AsyncDuckDB> {
 
 export function resetDuckDbForTests(): void {
   readyState = { kind: "idle" };
+}
+function isTestRuntime(): boolean {
+  return typeof process !== "undefined" && process.env?.VITEST === "true";
 }

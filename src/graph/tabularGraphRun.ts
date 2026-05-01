@@ -1,9 +1,8 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode, CsvPayload } from "../types/flow";
-import { streamRowSourceToCsvBlob } from "../download/toCsv";
-import { chooseTabularBackendForEdge, type TabularBackendKind } from "./tabularBackendSupport";
+import { chooseTabularBackendForEdge } from "./tabularBackendSupport";
 import { compileTabularGraphIrForEdge } from "./tabularGraphIr";
-import { collectRowSourceToPayload, rowSourceFromPayload, type RowSource } from "./rowSource";
+import { collectRowSourceToPayload, type RowSource } from "./rowSource";
 import {
   planSqlForEdge,
   runCopyToCsvBuffer,
@@ -13,17 +12,14 @@ import {
   type PlannedSqlQuery,
 } from "./tabularSqlPlanner";
 
-type StreamResolvers = {
-  getRowSource: () => Promise<RowSource | null>;
-};
-
 export class TabularExecutionError extends Error {
   constructor(
     message: string,
     public readonly detail: {
-      backend: TabularBackendKind;
+      backend: "sql";
       phase: "compile" | "execute";
       edgeId: string;
+      reason: "unsupported_op" | "planner_null" | "sql_execute_failed";
     },
   ) {
     super(message);
@@ -32,7 +28,7 @@ export class TabularExecutionError extends Error {
 }
 
 export type TabularGraphRun = {
-  backend(): Promise<TabularBackendKind>;
+  backend(): Promise<"sql">;
   rowSource(): Promise<RowSource | null>;
   payload(): Promise<CsvPayload | null>;
   preview(limit: number): Promise<{ headers: string[]; rows: Record<string, string>[] }>;
@@ -44,11 +40,9 @@ export function createTabularGraphRunForEdge(
   edge: Edge,
   nodes: AppNode[],
   edges: Edge[],
-  stream: StreamResolvers,
 ): TabularGraphRun {
   const ir = compileTabularGraphIrForEdge(edge, nodes, edges);
-  let backendPromise: Promise<TabularBackendKind> | null = null;
-  let streamSourcePromise: Promise<RowSource | null> | null = null;
+  let backendPromise: Promise<"sql"> | null = null;
   let sqlSourcePromise: Promise<RowSource | null> | null = null;
   let sqlPlanPromise: Promise<PlannedSqlQuery | null> | null = null;
   const previewMemo = new Map<
@@ -59,37 +53,48 @@ export function createTabularGraphRunForEdge(
   let rowCountPromise: Promise<number | null> | null = null;
   let downloadPromise: Promise<Blob | null> | null = null;
 
-  async function backend(): Promise<TabularBackendKind> {
-    backendPromise ??= chooseTabularBackendForEdge(edge, nodes, edges);
+  async function backend(): Promise<"sql"> {
+    backendPromise ??= (async () => {
+      try {
+        const chosen = await chooseTabularBackendForEdge(edge, nodes, edges);
+        if (chosen !== "sql") {
+          throw new TabularExecutionError("Operation chain is not SQL-capable in strict mode", {
+            backend: "sql",
+            phase: "compile",
+            edgeId: edge.id,
+            reason: "unsupported_op",
+          });
+        }
+        return "sql";
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const reason = message.includes("unsupported") ? "unsupported_op" : "planner_null";
+        throw new TabularExecutionError("Operation chain is not SQL-capable in strict mode", {
+          backend: "sql",
+          phase: "compile",
+          edgeId: edge.id,
+          reason,
+        });
+      }
+    })();
     return backendPromise;
   }
 
   async function rowSource(): Promise<RowSource | null> {
-    const chosen = await backend();
-    if (chosen === "sql") {
-      sqlSourcePromise ??= trySqlRowSourceForNode(
-        edge.source,
-        edge.sourceHandle ?? null,
-        nodes,
-        edges,
-      );
-      const rs = await sqlSourcePromise;
-      if (rs == null) {
-        throw new TabularExecutionError("SQL backend could not resolve row source", {
-          backend: "sql",
-          phase: "execute",
-          edgeId: edge.id,
-        });
-      }
-      return rs;
-    }
-    streamSourcePromise ??= stream.getRowSource();
-    const rs = await streamSourcePromise;
+    await backend();
+    sqlSourcePromise ??= trySqlRowSourceForNode(
+      edge.source,
+      edge.sourceHandle ?? null,
+      nodes,
+      edges,
+    );
+    const rs = await sqlSourcePromise;
     if (rs == null) {
-      throw new TabularExecutionError("Streaming backend could not resolve row source", {
-        backend: "stream",
+      throw new TabularExecutionError("SQL backend could not resolve row source", {
+        backend: "sql",
         phase: "execute",
         edgeId: edge.id,
+        reason: "planner_null",
       });
     }
     return rs;
@@ -103,6 +108,7 @@ export function createTabularGraphRunForEdge(
         backend: "sql",
         phase: "compile",
         edgeId: edge.id,
+        reason: "planner_null",
       });
     }
     return planned;
@@ -110,9 +116,7 @@ export function createTabularGraphRunForEdge(
 
   async function payload(): Promise<CsvPayload | null> {
     payloadPromise ??= (async () => {
-      const rs = await rowSource();
-      if (rs == null) return null;
-      return collectRowSourceToPayload(rs);
+      return collectRowSourceToPayload(await rowSource());
     })();
     return payloadPromise;
   }
@@ -124,15 +128,10 @@ export function createTabularGraphRunForEdge(
     const cached = previewMemo.get(n);
     if (cached != null) return cached;
     const created = (async () => {
-      const chosen = await backend();
-      if (chosen === "sql") {
-        const planned = await sqlPlan();
-        const rows = await runPreviewQuery(planned, n);
-        return { headers: planned.headers, rows };
-      }
-      await rowSource();
-      const p = await payload();
-      return { headers: p.headers, rows: p.rows.slice(0, n) };
+      await backend();
+      const planned = await sqlPlan();
+      const rows = await runPreviewQuery(planned, n);
+      return { headers: planned.headers, rows };
     })();
     previewMemo.set(n, created);
     return created;
@@ -140,32 +139,21 @@ export function createTabularGraphRunForEdge(
 
   async function rowCount(): Promise<number | null> {
     rowCountPromise ??= (async () => {
-      const chosen = await backend();
-      if (chosen === "sql") {
-        const planned = await sqlPlan();
-        return runCountQuery(planned);
-      }
-      const rs = await rowSource();
-      if (rs.rowCount != null) return rs.rowCount;
-      const p = await payload();
-      return p?.rows.length ?? 0;
+      await backend();
+      const planned = await sqlPlan();
+      return runCountQuery(planned);
     })();
     return rowCountPromise;
   }
 
   async function downloadCsv(): Promise<Blob | null> {
     downloadPromise ??= (async () => {
-      const chosen = await backend();
-      if (chosen === "sql") {
-        const planned = await sqlPlan();
-        const bytes = await runCopyToCsvBuffer(planned);
-        const arrayBuffer = new ArrayBuffer(bytes.byteLength);
-        new Uint8Array(arrayBuffer).set(bytes);
-        return new Blob([arrayBuffer], { type: "text/csv;charset=utf-8;" });
-      }
-      await rowSource();
-      const p = await payload();
-      return streamRowSourceToCsvBlob(rowSourceFromPayload(p));
+      await backend();
+      const planned = await sqlPlan();
+      const bytes = await runCopyToCsvBuffer(planned);
+      const arrayBuffer = new ArrayBuffer(bytes.byteLength);
+      new Uint8Array(arrayBuffer).set(bytes);
+      return new Blob([arrayBuffer], { type: "text/csv;charset=utf-8;" });
     })();
     return downloadPromise;
   }

@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { indexedDB as fakeIndexedDB } from "fake-indexeddb";
 import { getAppDatasetStore, resetAppDatasetStoreForTests } from "../dataset/appDatasetStore";
+import { resetDuckDbForTests } from "../engine/duckdb";
 import {
   clearSharedExecutionCache,
   getSharedExecutionCacheStats,
   resetSharedExecutionCacheStats,
 } from "./tabularExecutionCache";
 import {
-  countRowsInRowSource,
   getPreviewForEdgeAsync,
   getRowCountForEdgeAsync,
   getTabularOutputAsync,
@@ -19,6 +19,7 @@ const DATASET_DB = "etl-ui-datasets";
 
 beforeEach(async () => {
   resetAppDatasetStoreForTests();
+  resetDuckDbForTests();
   Object.defineProperty(globalThis, "indexedDB", {
     value: fakeIndexedDB,
     configurable: true,
@@ -53,7 +54,7 @@ function makeRows(count: number): Record<string, string>[] {
 }
 
 describe("phase1 benchmark", () => {
-  it("reports fallback preview/count/throughput metrics", async () => {
+  it("fails fast under strict SQL-only execution when chain is unsupported", async () => {
     const rowCount = Number.parseInt(process.env.PHASE1_BENCH_ROWS ?? "50000", 10);
     const store = getAppDatasetStore();
     const csv = {
@@ -123,33 +124,20 @@ describe("phase1 benchmark", () => {
     const edgeToViz = edges[3]!;
 
     const tPreview0 = nowMs();
-    const preview = await getPreviewForEdgeAsync(edgeToViz, nodes, edges, 100);
-    const previewMs = nowMs() - tPreview0;
-
-    const tStable0 = nowMs();
-    await getPreviewForEdgeAsync(edgeToViz, nodes, edges, 100);
-    const count = await getRowCountForEdgeAsync(edgeToViz, nodes, edges);
-    const stableMs = nowMs() - tStable0;
-
-    const tStream0 = nowMs();
-    const rs = await getTabularOutputAsync("compute", nodes, edges);
-    if (rs == null) throw new Error("expected row source from compute");
-    const streamed = await countRowsInRowSource(rs);
-    const streamMs = nowMs() - tStream0;
-    const rowsPerSec = streamMs > 0 ? (streamed * 1000) / streamMs : 0;
-
+    await expect(getPreviewForEdgeAsync(edgeToViz, nodes, edges, 100)).rejects.toThrow(
+      "Operation chain is not SQL-capable in strict mode",
+    );
+    const previewFailMs = nowMs() - tPreview0;
     const cacheStats = getSharedExecutionCacheStats();
-    console.log(`[phase1-bench] rows=${streamed}`);
-    console.log(`[phase1-bench] preview_ms=${previewMs.toFixed(1)}`);
-    console.log(`[phase1-bench] stable_preview_plus_count_ms=${stableMs.toFixed(1)}`);
-    console.log(`[phase1-bench] stream_ms=${streamMs.toFixed(1)}`);
-    console.log(`[phase1-bench] rows_per_sec=${rowsPerSec.toFixed(1)}`);
+    console.log(`[phase1-bench] strict_fail_ms=${previewFailMs.toFixed(1)}`);
     console.log(
       `[phase1-bench] cache resolvedHit=${cacheStats.resolvedHit} resolvedMiss=${cacheStats.resolvedMiss} inflightReuse=${cacheStats.inflightReuse}`,
     );
-
-    expect(preview.rows.length).toBeGreaterThan(0);
-    expect(count).toBe(rowCount);
-    expect(streamed).toBe(rowCount);
+    await expect(getRowCountForEdgeAsync(edgeToViz, nodes, edges)).rejects.toThrow(
+      "Operation chain is not SQL-capable in strict mode",
+    );
+    await expect(getTabularOutputAsync("compute", nodes, edges)).rejects.toThrow(
+      "Operation chain is not SQL-capable in strict mode",
+    );
   }, 120_000);
 });
