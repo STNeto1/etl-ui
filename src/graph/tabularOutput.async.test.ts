@@ -219,7 +219,7 @@ describe("getTabularOutputAsync", () => {
     });
   });
 
-  it("supports unpivot in async graph execution", async () => {
+  it("throws when strict stream backend cannot execute unpivot", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "a", "b"],
@@ -258,17 +258,14 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "pv" }];
-    const out = await collectRowSourceToPayload((await getTabularOutputAsync("pv", nodes, edges))!);
-    expect(out).toEqual({
-      headers: ["id", "k", "v"],
-      rows: [
-        { id: "x", k: "a", v: "1" },
-        { id: "x", k: "b", v: "2" },
-      ],
-    });
+    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
+    await expect(getTabularOutputAsync("pv", nodes, edges)).rejects.toThrow(
+      "stream backend unsupported",
+    );
+    planSpy.mockRestore();
   });
 
-  it("supports pivot in async graph execution", async () => {
+  it("throws when strict stream backend cannot execute pivot", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "metric", "val"],
@@ -310,14 +307,14 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "pv" }];
-    const out = await collectRowSourceToPayload((await getTabularOutputAsync("pv", nodes, edges))!);
-    expect(out).toEqual({
-      headers: ["id", "x", "y"],
-      rows: [{ id: "1", x: "10", y: "20" }],
-    });
+    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
+    await expect(getTabularOutputAsync("pv", nodes, edges)).rejects.toThrow(
+      "stream backend unsupported",
+    );
+    planSpy.mockRestore();
   });
 
-  it("supports unnestArray in async graph execution", async () => {
+  it("throws when strict stream backend cannot execute unnestArray", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "tags"],
@@ -347,14 +344,11 @@ describe("getTabularOutputAsync", () => {
       },
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "un" }];
-    const out = await collectRowSourceToPayload((await getTabularOutputAsync("un", nodes, edges))!);
-    expect(out).toEqual({
-      headers: ["id", "tag"],
-      rows: [
-        { id: "1", tag: "a" },
-        { id: "1", tag: "b" },
-      ],
-    });
+    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
+    await expect(getTabularOutputAsync("un", nodes, edges)).rejects.toThrow(
+      "stream backend unsupported",
+    );
+    planSpy.mockRestore();
   });
 
   it("runs preview and count as query-driven edge consumers", async () => {
@@ -503,45 +497,34 @@ describe("getTabularOutputAsync", () => {
   });
 
   it("reuses a shared graph run session across consumers", async () => {
-    const store = getAppDatasetStore();
     const csv = {
-      headers: ["n", "tags"],
-      rows: [{ n: "1", tags: "[\"a\",\"b\"]" }, { n: "2", tags: "[]" }, { n: "3", tags: "[\"c\"]" }],
+      headers: ["n"],
+      rows: [{ n: "1" }, { n: "2" }, { n: "3" }],
     };
-    const meta = await store.putNormalizedPayload(csv, "csv");
     const nodes: AppNode[] = [
       {
-        id: "src0",
+        id: "src",
         type: "dataSource",
         position: { x: 0, y: 0 },
         data: {
           ...defaultDataSourceData(),
-          csv: null,
-          datasetId: meta.id,
-          format: "csv",
-          headers: meta.headers,
-          rowCount: meta.rowCount,
-          sample: meta.sample,
+          csv,
+          headers: csv.headers,
+          rowCount: csv.rows.length,
+          sample: csv.rows,
         },
       },
-      {
-        id: "un",
-        type: "unnestArray",
-        position: { x: 0, y: 0 },
-        data: { label: "Unnest", column: "tags", primitiveOutputColumn: "tag" },
-      },
     ];
-    const e1: Edge = { id: "e1", source: "src0", target: "un" };
-    const edge: Edge = { id: "e2", source: "un", target: "viz" };
+    const edge: Edge = { id: "e1", source: "src", target: "viz" };
     const runSpy = vi.spyOn(graphRun, "createTabularGraphRunForEdge");
-    await getPreviewForEdgeAsync(edge, nodes, [e1, edge], 2);
-    await getRowCountForEdgeAsync(edge, nodes, [e1, edge]);
-    await downloadCsvForEdgeAsync(edge, nodes, [e1, edge]);
+    await getPreviewForEdgeAsync(edge, nodes, [edge], 2);
+    await getRowCountForEdgeAsync(edge, nodes, [edge]);
+    await downloadCsvForEdgeAsync(edge, nodes, [edge]);
     expect(runSpy).toHaveBeenCalledTimes(1);
     runSpy.mockRestore();
   });
 
-  it("supports switch branch and default edge outputs", async () => {
+  it("throws when strict stream backend cannot execute switch branches", async () => {
     const store = getAppDatasetStore();
     const csv = {
       headers: ["id", "country", "name"],
@@ -602,14 +585,14 @@ describe("getTabularOutputAsync", () => {
       { id: "e3", source: "sw", sourceHandle: "switch-default", target: "vizd" },
     ];
 
-    const branch = await collectRowSourceToPayload(
-      (await getTabularOutputAsync("vizb", nodes, edges))!,
+    const planSpy = vi.spyOn(planner, "planSqlForEdge").mockResolvedValue(null);
+    await expect(getTabularOutputAsync("vizb", nodes, edges)).rejects.toThrow(
+      "stream backend unsupported",
     );
-    const fallback = await collectRowSourceToPayload(
-      (await getTabularOutputAsync("vizd", nodes, edges))!,
+    await expect(getTabularOutputAsync("vizd", nodes, edges)).rejects.toThrow(
+      "stream backend unsupported",
     );
-    expect(branch.rows.map((r) => r.id)).toEqual(["1", "3"]);
-    expect(fallback.rows.map((r) => r.id)).toEqual(["2"]);
+    planSpy.mockRestore();
   });
 
   it("keeps cast date output as ISO strings", async () => {

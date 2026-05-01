@@ -11,7 +11,10 @@ describe("tabularGraphIr", () => {
   it("compiles only reachable upstream subgraph in topological order", () => {
     clearTabularGraphIrCache();
     const nodes: AppNode[] = [
-      node("src", "dataSource", { headers: ["a"], csv: { headers: ["a"], rows: [] } } as AppNode["data"]),
+      node("src", "dataSource", {
+        headers: ["a"],
+        csv: { headers: ["a"], rows: [] },
+      } as AppNode["data"]),
       node("flt", "filter", { rules: [], combineAll: true } as AppNode["data"]),
       node("viz", "visualization", { label: "Viz", previewRows: 5 } as AppNode["data"]),
       node("orphan", "computeColumn", { columns: [] } as AppNode["data"]),
@@ -32,7 +35,10 @@ describe("tabularGraphIr", () => {
   it("reuses cached IR for same stale key", () => {
     clearTabularGraphIrCache();
     const nodes: AppNode[] = [
-      node("src", "dataSource", { headers: ["a"], csv: { headers: ["a"], rows: [] } } as AppNode["data"]),
+      node("src", "dataSource", {
+        headers: ["a"],
+        csv: { headers: ["a"], rows: [] },
+      } as AppNode["data"]),
     ];
     const edges: Edge[] = [{ id: "e1", source: "src", target: "viz" }];
     const a = compileTabularGraphIrForEdge(edges[0]!, nodes, edges);

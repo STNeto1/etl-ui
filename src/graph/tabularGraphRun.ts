@@ -9,12 +9,27 @@ import {
   runCopyToCsvBuffer,
   runCountQuery,
   runPreviewQuery,
+  trySqlRowSourceForNode,
   type PlannedSqlQuery,
 } from "./tabularSqlPlanner";
 
 type StreamResolvers = {
   getRowSource: () => Promise<RowSource | null>;
 };
+
+export class TabularExecutionError extends Error {
+  constructor(
+    message: string,
+    public readonly detail: {
+      backend: TabularBackendKind;
+      phase: "compile" | "execute";
+      edgeId: string;
+    },
+  ) {
+    super(message);
+    this.name = "TabularExecutionError";
+  }
+}
 
 export type TabularGraphRun = {
   backend(): Promise<TabularBackendKind>;
@@ -34,8 +49,12 @@ export function createTabularGraphRunForEdge(
   const ir = compileTabularGraphIrForEdge(edge, nodes, edges);
   let backendPromise: Promise<TabularBackendKind> | null = null;
   let streamSourcePromise: Promise<RowSource | null> | null = null;
+  let sqlSourcePromise: Promise<RowSource | null> | null = null;
   let sqlPlanPromise: Promise<PlannedSqlQuery | null> | null = null;
-  const previewMemo = new Map<number, Promise<{ headers: string[]; rows: Record<string, string>[] }>>();
+  const previewMemo = new Map<
+    number,
+    Promise<{ headers: string[]; rows: Record<string, string>[] }>
+  >();
   let payloadPromise: Promise<CsvPayload | null> | null = null;
   let rowCountPromise: Promise<number | null> | null = null;
   let downloadPromise: Promise<Blob | null> | null = null;
@@ -47,14 +66,46 @@ export function createTabularGraphRunForEdge(
 
   async function rowSource(): Promise<RowSource | null> {
     const chosen = await backend();
-    if (chosen === "sql") return null;
+    if (chosen === "sql") {
+      sqlSourcePromise ??= trySqlRowSourceForNode(
+        edge.source,
+        edge.sourceHandle ?? null,
+        nodes,
+        edges,
+      );
+      const rs = await sqlSourcePromise;
+      if (rs == null) {
+        throw new TabularExecutionError("SQL backend could not resolve row source", {
+          backend: "sql",
+          phase: "execute",
+          edgeId: edge.id,
+        });
+      }
+      return rs;
+    }
     streamSourcePromise ??= stream.getRowSource();
-    return streamSourcePromise;
+    const rs = await streamSourcePromise;
+    if (rs == null) {
+      throw new TabularExecutionError("Streaming backend could not resolve row source", {
+        backend: "stream",
+        phase: "execute",
+        edgeId: edge.id,
+      });
+    }
+    return rs;
   }
 
   async function sqlPlan(): Promise<PlannedSqlQuery | null> {
     sqlPlanPromise ??= planSqlForEdge(edge, nodes, edges);
-    return sqlPlanPromise;
+    const planned = await sqlPlanPromise;
+    if (planned == null) {
+      throw new TabularExecutionError("SQL backend could not compile query plan", {
+        backend: "sql",
+        phase: "compile",
+        edgeId: edge.id,
+      });
+    }
+    return planned;
   }
 
   async function payload(): Promise<CsvPayload | null> {
@@ -66,7 +117,9 @@ export function createTabularGraphRunForEdge(
     return payloadPromise;
   }
 
-  async function preview(limit: number): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
+  async function preview(
+    limit: number,
+  ): Promise<{ headers: string[]; rows: Record<string, string>[] }> {
     const n = Math.max(0, Math.floor(limit));
     const cached = previewMemo.get(n);
     if (cached != null) return cached;
@@ -74,14 +127,11 @@ export function createTabularGraphRunForEdge(
       const chosen = await backend();
       if (chosen === "sql") {
         const planned = await sqlPlan();
-        if (planned == null) return { headers: [], rows: [] };
         const rows = await runPreviewQuery(planned, n);
         return { headers: planned.headers, rows };
       }
-      const rs = await rowSource();
-      if (rs == null) return { headers: [], rows: [] };
+      await rowSource();
       const p = await payload();
-      if (p == null) return { headers: [], rows: [] };
       return { headers: p.headers, rows: p.rows.slice(0, n) };
     })();
     previewMemo.set(n, created);
@@ -93,14 +143,12 @@ export function createTabularGraphRunForEdge(
       const chosen = await backend();
       if (chosen === "sql") {
         const planned = await sqlPlan();
-        if (planned == null) return null;
         return runCountQuery(planned);
       }
       const rs = await rowSource();
-      if (rs == null) return null;
       if (rs.rowCount != null) return rs.rowCount;
       const p = await payload();
-      return p?.rows.length ?? null;
+      return p?.rows.length ?? 0;
     })();
     return rowCountPromise;
   }
@@ -110,16 +158,13 @@ export function createTabularGraphRunForEdge(
       const chosen = await backend();
       if (chosen === "sql") {
         const planned = await sqlPlan();
-        if (planned == null) return null;
         const bytes = await runCopyToCsvBuffer(planned);
         const arrayBuffer = new ArrayBuffer(bytes.byteLength);
         new Uint8Array(arrayBuffer).set(bytes);
         return new Blob([arrayBuffer], { type: "text/csv;charset=utf-8;" });
       }
-      const rs = await rowSource();
-      if (rs == null) return null;
+      await rowSource();
       const p = await payload();
-      if (p == null) return null;
       return streamRowSourceToCsvBlob(rowSourceFromPayload(p));
     })();
     return downloadPromise;

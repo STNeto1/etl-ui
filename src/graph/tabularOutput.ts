@@ -3,10 +3,9 @@ import { runAggregate } from "../aggregate/runAggregate";
 import { applyComputeRow } from "../computeColumn/template";
 import { applyCastToPayload } from "../cast/applyCast";
 import { applyFillReplaceToPayload } from "../fillReplace/applyFillReplace";
-import type { AppNode, CsvPayload, DataSourceNode } from "../types/flow";
+import type { AppNode, CsvPayload } from "../types/flow";
 import { applyHttpColumnRenames } from "./tabularCsvRename";
 import { tryStreamingRowSourceForNode } from "./tabularStreamingRowSource";
-import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import {
   collectRowSourceToPayload,
   rowSourceFromPayload,
@@ -23,17 +22,11 @@ import { applyLimitSample } from "../limitSample/applyLimitSample";
 import { applyUnnestArrayColumn } from "../unnest/applyUnnestArrayColumn";
 import { applyConstantColumns } from "../constantColumn/applyConstantColumns";
 import { applyPivotUnpivot } from "../pivotUnpivot/applyPivotUnpivot";
-import {
-  logPlannerFallback,
-  trySqlRowSourceForNode,
-} from "./tabularSqlPlanner";
 import { upstreamSubgraphStaleKey } from "./tabularStaleKey";
 import { executeShared, maybeLogSharedExecutionCacheStats } from "./tabularExecutionCache";
 import { createSemaphore } from "./asyncSemaphore";
 import { createTabularGraphRunForEdge } from "./tabularGraphRun";
 
-const TABULAR_DEBUG =
-  typeof import.meta !== "undefined" && (import.meta as ImportMeta).env?.DEV === true;
 const rowCountLane = createSemaphore(1);
 
 type ResolveOpts = { limit?: number; signal?: AbortSignal; consumer?: string };
@@ -43,7 +36,6 @@ const graphRunSessionCache = new Map<
   string,
   { run: ReturnType<typeof createTabularGraphRunForEdge>; expiresAt: number }
 >();
-
 
 function plannerRequestKey(
   sourceId: string,
@@ -84,10 +76,18 @@ async function getSharedTabularGraphRunForEdge(
     `graphRun:${key}`,
     async () => {
       const run = createTabularGraphRunForEdge(incomingEdge, nodes, edges, {
-        getRowSource: () =>
-          getTabularOutputForEdgeAsyncLegacy(incomingEdge, nodes, edges, new Set(), {
-            consumer: "graph-run",
-          }),
+        getRowSource: async () => {
+          const streamed = await tryStreamingRowSourceForNode(
+            incomingEdge.source,
+            incomingEdge.sourceHandle ?? null,
+            nodes,
+            edges,
+          );
+          if (streamed == null) {
+            throw new Error(`stream backend unsupported for edge ${incomingEdge.id}`);
+          }
+          return streamed;
+        },
       });
       graphRunSessionCache.set(key, { run, expiresAt: Date.now() + GRAPH_RUN_CACHE_TTL_MS });
       if (graphRunSessionCache.size > 256) {
@@ -209,45 +209,6 @@ export function getTabularOutputForEdge(
  * Clone nodes and attach in-memory `csv` for each data source that only has `datasetId`
  * (used for async resolution / tests; does not mutate React Flow state).
  */
-export async function materializeDataSourcesForResolve(nodes: AppNode[]): Promise<AppNode[]> {
-  const store = getAppDatasetStore();
-  const out: AppNode[] = [];
-  for (const n of nodes) {
-    if (n.type === "dataSource") {
-      const ds = n as DataSourceNode;
-      if (ds.data.csv != null) {
-        out.push(ds);
-        continue;
-      }
-      if (ds.data.datasetId == null) {
-        out.push(ds);
-        continue;
-      }
-      const rows: Record<string, string>[] = [];
-      for await (const row of store.scan(ds.data.datasetId)) {
-        rows.push(row);
-      }
-      const headers =
-        ds.data.headers.length > 0 ? ds.data.headers : rows[0] != null ? Object.keys(rows[0]!) : [];
-      const aligned = rows.map((r) => {
-        const o: Record<string, string> = {};
-        for (const h of headers) {
-          o[h] = r[h] ?? "";
-        }
-        return o;
-      });
-      const next: DataSourceNode = {
-        ...ds,
-        data: { ...ds.data, csv: { headers, rows: aligned } },
-      };
-      out.push(next);
-    } else {
-      out.push(n);
-    }
-  }
-  return out;
-}
-
 /** Async view of tabular output as a row iterator (loads dataset-backed sources from the store). */
 export async function getTabularOutputAsync(
   nodeId: string,
@@ -256,117 +217,14 @@ export async function getTabularOutputAsync(
   visited: Set<string> = new Set(),
   opts?: ResolveOpts,
 ): Promise<RowSource | null> {
-  const started = performance.now();
-  try {
-    const sqlPlanned = await trySqlRowSourceForNode(nodeId, null, nodes, edges, opts);
-    if (sqlPlanned != null) {
-      if (TABULAR_DEBUG) {
-        console.debug(
-          `[tabular] node=${nodeId} path=planner ms=${(performance.now() - started).toFixed(1)}`,
-        );
-      }
-      return sqlPlanned;
-    }
-  } catch (error) {
-    logPlannerFallback(
-      `node ${nodeId}: planner errored (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-  logPlannerFallback(`node ${nodeId}: planner unsupported, using legacy path`);
-
-  const streamed = await tryStreamingRowSourceForNode(nodeId, null, nodes, edges);
-  if (streamed != null) {
-    if (TABULAR_DEBUG) {
-      console.debug(
-        `[tabular] node=${nodeId} path=stream-fallback ms=${(performance.now() - started).toFixed(1)}`,
-      );
-    }
-    return streamed;
-  }
-
-  const withCsv = await materializeDataSourcesForResolve(nodes);
-  const payload = getTabularOutputWithHandle(nodeId, null, withCsv, edges, visited);
-  if (TABULAR_DEBUG) {
-    console.debug(
-      `[tabular] node=${nodeId} path=legacy-materialize ms=${(performance.now() - started).toFixed(1)}`,
-    );
-  }
-  return payload != null ? rowSourceFromPayload(payload) : null;
-}
-
-async function getTabularOutputForEdgeAsyncLegacy(
-  incomingEdge: Edge,
-  nodes: AppNode[],
-  edges: Edge[],
-  visited: Set<string> = new Set(),
-  opts?: ResolveOpts,
-): Promise<RowSource | null> {
-  const started = performance.now();
-  const reqKey = plannerRequestKey(
-    incomingEdge.source,
-    incomingEdge.sourceHandle ?? null,
-    nodes,
-    edges,
-    opts,
-  );
-  const sharedKey = `rowSource:${reqKey}`;
-  try {
-    const sqlPlanned = await executeShared(
-      sharedKey,
-      async () =>
-        trySqlRowSourceForNode(
-          incomingEdge.source,
-          incomingEdge.sourceHandle ?? null,
-          nodes,
-          edges,
-          opts,
-        ),
-      { cacheResolved: false },
-    );
-    if (sqlPlanned != null) {
-      if (TABULAR_DEBUG) {
-        console.debug(
-          `[tabular] edge=${incomingEdge.id} path=planner ms=${(performance.now() - started).toFixed(1)}`,
-        );
-      }
-      return sqlPlanned;
-    }
-  } catch (error) {
-    logPlannerFallback(
-      `edge ${incomingEdge.id}: planner errored (${error instanceof Error ? error.message : String(error)})`,
-    );
-  }
-  logPlannerFallback(`edge ${incomingEdge.id}: planner unsupported, using legacy path`);
-
-  const streamed = await tryStreamingRowSourceForNode(
-    incomingEdge.source,
-    incomingEdge.sourceHandle ?? null,
-    nodes,
-    edges,
-  );
-  if (streamed != null) {
-    if (TABULAR_DEBUG) {
-      console.debug(
-        `[tabular] edge=${incomingEdge.id} path=stream-fallback ms=${(performance.now() - started).toFixed(1)}`,
-      );
-    }
-    return streamed;
-  }
-
-  const withCsv = await materializeDataSourcesForResolve(nodes);
-  const payload = getTabularOutputWithHandle(
-    incomingEdge.source,
-    incomingEdge.sourceHandle ?? null,
-    withCsv,
-    edges,
-    visited,
-  );
-  if (TABULAR_DEBUG) {
-    console.debug(
-      `[tabular] edge=${incomingEdge.id} path=legacy-materialize ms=${(performance.now() - started).toFixed(1)}`,
-    );
-  }
-  return payload != null ? rowSourceFromPayload(payload) : null;
+  void visited;
+  void opts;
+  const synthetic: Edge = {
+    id: `__node_output__:${nodeId}`,
+    source: nodeId,
+    target: `__node_output_target__:${nodeId}`,
+  };
+  return (await getSharedTabularGraphRunForEdge(synthetic, nodes, edges)).rowSource();
 }
 
 export async function getTabularOutputForEdgeAsync(
@@ -390,7 +248,7 @@ export async function getTabularOutputForEdgeAsync(
   );
 }
 
-/** Full tabular payload for an edge (materializes dataset-backed sources). */
+/** Full tabular payload for an edge via strict graph-run execution. */
 export async function getTabularPayloadForEdgeAsync(
   incomingEdge: Edge,
   nodes: AppNode[],
@@ -403,7 +261,7 @@ export async function getTabularPayloadForEdgeAsync(
   return (await getSharedTabularGraphRunForEdge(incomingEdge, nodes, edges)).payload();
 }
 
-/** Alias: pull-based row source for an incoming edge (materializes upstream chain). */
+/** Alias: pull-based row source for an incoming edge via strict graph-run execution. */
 export const getRowSourceForEdgeAsync = getTabularOutputForEdgeAsync;
 
 export async function getPreviewForEdgeAsync(
@@ -423,7 +281,8 @@ export async function getPreviewForEdgeAsync(
   const sharedKey = `preview:${reqKey}`;
   const result = await executeShared(
     sharedKey,
-    async () => (await getSharedTabularGraphRunForEdge(incomingEdge, nodes, edges)).preview(requested),
+    async () =>
+      (await getSharedTabularGraphRunForEdge(incomingEdge, nodes, edges)).preview(requested),
     { cacheResolved: false },
   );
   maybeLogSharedExecutionCacheStats("preview");
@@ -437,9 +296,8 @@ export async function getRowCountForEdgeAsync(
 ): Promise<number | null> {
   const cacheKey = rowCountCacheKey(incomingEdge, nodes, edges);
   const result = await rowCountLane.run(() =>
-    executeShared(
-      `rowCount:${cacheKey}`,
-      async () => (await getSharedTabularGraphRunForEdge(incomingEdge, nodes, edges)).rowCount(),
+    executeShared(`rowCount:${cacheKey}`, async () =>
+      (await getSharedTabularGraphRunForEdge(incomingEdge, nodes, edges)).rowCount(),
     ),
   );
   maybeLogSharedExecutionCacheStats("rowCount");
