@@ -1,13 +1,13 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode } from "../types/flow";
-import { DATA_SOURCE_NODE_ID, defaultDataSourceData } from "../types/flow";
+import { defaultDataSourceData } from "../types/flow";
 
-/** Canonical empty graph (single CSV source, no edges). */
+/** Canonical empty graph (single source, no edges). */
 export function getBlankWorkspaceGraph(): { nodes: AppNode[]; edges: Edge[] } {
   return {
     nodes: [
       {
-        id: DATA_SOURCE_NODE_ID,
+        id: crypto.randomUUID(),
         type: "dataSource",
         position: { x: 0, y: 0 },
         data: defaultDataSourceData(),

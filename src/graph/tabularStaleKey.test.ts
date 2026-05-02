@@ -2,11 +2,9 @@ import type { Edge } from "@xyflow/react";
 import { describe, expect, it } from "vitest";
 import type { AppNode } from "../types/flow";
 import { upstreamSubgraphStaleKey, visualizationUpstreamStaleKey } from "./tabularStaleKey";
-import {
-  DATA_SOURCE_NODE_ID,
-  defaultDataSourceData,
-  defaultVisualizationData,
-} from "../types/flow";
+import { defaultDataSourceData, defaultVisualizationData } from "../types/flow";
+
+const SOURCE_ID = "source-1";
 
 function mkEdge(id: string, source: string, target: string): Edge {
   return { id, source, target };
@@ -24,9 +22,9 @@ function mkHandledEdge(
 
 describe("tabularStaleKey", () => {
   it("upstreamSubgraphStaleKey is stable across node position-only changes", () => {
-    const edges: Edge[] = [mkEdge("e1", DATA_SOURCE_NODE_ID, "viz-1")];
+    const edges: Edge[] = [mkEdge("e1", SOURCE_ID, "viz-1")];
     const ds: AppNode = {
-      id: DATA_SOURCE_NODE_ID,
+      id: SOURCE_ID,
       type: "dataSource",
       position: { x: 0, y: 0 },
       data: {
@@ -38,8 +36,8 @@ describe("tabularStaleKey", () => {
         loadedAt: 123456,
       },
     };
-    const k1 = upstreamSubgraphStaleKey(DATA_SOURCE_NODE_ID, edges, [ds]);
-    const k2 = upstreamSubgraphStaleKey(DATA_SOURCE_NODE_ID, edges, [
+    const k1 = upstreamSubgraphStaleKey(SOURCE_ID, edges, [ds]);
+    const k2 = upstreamSubgraphStaleKey(SOURCE_ID, edges, [
       {
         ...ds,
         position: { x: 999, y: -3 },
@@ -50,9 +48,9 @@ describe("tabularStaleKey", () => {
 
   it("visualizationUpstreamStaleKey ignores visualization node position jitter", () => {
     const vizId = "viz-1";
-    const edges: Edge[] = [mkEdge("e-v", DATA_SOURCE_NODE_ID, vizId)];
+    const edges: Edge[] = [mkEdge("e-v", SOURCE_ID, vizId)];
     const ds: AppNode = {
-      id: DATA_SOURCE_NODE_ID,
+      id: SOURCE_ID,
       type: "dataSource",
       position: { x: 0, y: 0 },
       data: {
@@ -82,7 +80,7 @@ describe("tabularStaleKey", () => {
     const seed = "merge-1";
     const nodes: AppNode[] = [
       {
-        id: DATA_SOURCE_NODE_ID,
+        id: SOURCE_ID,
         type: "dataSource",
         position: { x: 0, y: 0 },
         data: {
@@ -113,11 +111,11 @@ describe("tabularStaleKey", () => {
     ];
 
     const ifOnly: Edge[] = [
-      mkEdge("e1", DATA_SOURCE_NODE_ID, "cond-1"),
+      mkEdge("e1", SOURCE_ID, "cond-1"),
       mkHandledEdge("e2", "cond-1", seed, "if"),
     ];
     const ifAndElse: Edge[] = [
-      mkEdge("e1", DATA_SOURCE_NODE_ID, "cond-1"),
+      mkEdge("e1", SOURCE_ID, "cond-1"),
       mkHandledEdge("e2", "cond-1", seed, "if"),
       mkHandledEdge("e3", "cond-1", seed, "else"),
     ];

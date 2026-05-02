@@ -46,7 +46,6 @@ import { ConstantColumnNode } from "./nodes/ConstantColumnNode";
 import { PivotUnpivotNode } from "./nodes/PivotUnpivotNode";
 import type { AppNode } from "./types/flow";
 import {
-  DATA_SOURCE_NODE_ID,
   DND_PALETTE_MIME,
   defaultConditionalData,
   defaultDataSourceData,
@@ -409,6 +408,21 @@ function FlowWorkspace() {
     });
   }, [getNodes, nodes, edges, setRfNodes, fitView]);
 
+  const handleAddSource = useCallback(() => {
+    setNodes((prev) => {
+      const sourceCount = prev.filter((n) => n.type === "dataSource").length;
+      return [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          type: "dataSource",
+          position: { x: 40, y: 80 + sourceCount * 180 },
+          data: defaultDataSourceData(),
+        },
+      ];
+    });
+  }, []);
+
   useEffect(() => {
     if (!hydrated) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -458,31 +472,18 @@ function FlowWorkspace() {
 
   const onNodesChange = useCallback((changes: NodeChange<AppNode>[]) => {
     setNodes((nodesSnapshot) => {
-      const resetSource = changes.some((c) => c.type === "remove" && c.id === DATA_SOURCE_NODE_ID);
-      const appliedChanges = changes.filter(
-        (c) => !(c.type === "remove" && c.id === DATA_SOURCE_NODE_ID),
-      );
-      let next = applyNodeChanges(appliedChanges, nodesSnapshot);
-
-      if (resetSource) {
-        const stillThere = next.some((n) => n.id === DATA_SOURCE_NODE_ID);
-        if (stillThere) {
-          next = next.map((n) =>
-            n.id === DATA_SOURCE_NODE_ID && n.type === "dataSource"
-              ? { ...n, data: defaultDataSourceData() }
-              : n,
-          );
-        } else {
-          next = [
-            ...next,
-            {
-              id: DATA_SOURCE_NODE_ID,
-              type: "dataSource" as const,
-              position: { x: 0, y: 0 },
-              data: defaultDataSourceData(),
-            },
-          ];
-        }
+      let next = applyNodeChanges(changes, nodesSnapshot);
+      const hasSource = next.some((n) => n.type === "dataSource");
+      if (!hasSource) {
+        next = [
+          ...next,
+          {
+            id: crypto.randomUUID(),
+            type: "dataSource" as const,
+            position: { x: 0, y: 0 },
+            data: defaultDataSourceData(),
+          },
+        ];
       }
 
       return next;
@@ -743,6 +744,7 @@ function FlowWorkspace() {
             onRedo={redo}
             canUndo={canUndo}
             canRedo={canRedo}
+            onAddSource={handleAddSource}
             onFormatWorkflow={handleFormatWorkflow}
           />
         ) : null}

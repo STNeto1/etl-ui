@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Edge } from "@xyflow/react";
-import { DATA_SOURCE_NODE_ID, defaultDataSourceData, defaultFilterData } from "../types/flow";
+import { defaultDataSourceData, defaultFilterData } from "../types/flow";
 import type { AppNode } from "../types/flow";
 import { layoutWorkflowGraph } from "./layoutWorkflowGraph";
 
@@ -75,7 +75,7 @@ describe("layoutWorkflowGraph", () => {
   it("handles single data-source-only workspace", () => {
     const nodes: AppNode[] = [
       {
-        id: DATA_SOURCE_NODE_ID,
+        id: "source-1",
         type: "dataSource",
         position: { x: 50, y: -30 },
         data: defaultDataSourceData(),

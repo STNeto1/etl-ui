@@ -28,6 +28,7 @@ type WorkspaceToolbarProps = {
   onRedo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  onAddSource: () => void;
   onFormatWorkflow: () => void;
 };
 
@@ -51,6 +52,7 @@ export function WorkspaceToolbar({
   onRedo,
   canUndo,
   canRedo,
+  onAddSource,
   onFormatWorkflow,
 }: WorkspaceToolbarProps) {
   const canDelete = workspaceIndex.items.length > 1;
@@ -143,6 +145,9 @@ export function WorkspaceToolbar({
           </button>
           <button type="button" className={btnClass} disabled={!canRedo} onClick={onRedo}>
             Redo
+          </button>
+          <button type="button" className={btnClass} onClick={onAddSource}>
+            Add source
           </button>
           <button
             type="button"

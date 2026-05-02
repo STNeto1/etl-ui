@@ -1,6 +1,5 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode, DataSourceData, DataSourceNode } from "../types/flow";
-import { DATA_SOURCE_NODE_ID } from "../types/flow";
 
 export type GraphSnapshot = { nodes: AppNode[]; edges: Edge[] };
 
@@ -99,12 +98,15 @@ export function cloneGraphSnapshotStrippingCsv(s: GraphSnapshot): GraphSnapshot 
  * so undo/redo only affects graph shape, not the loaded dataset (loading is not undoable).
  */
 export function mergeSourceCsvFromLive(snapshotNodes: AppNode[], liveNodes: AppNode[]): AppNode[] {
-  const liveSource = liveNodes.find(
-    (n): n is DataSourceNode => n.id === DATA_SOURCE_NODE_ID && n.type === "dataSource",
-  );
-  if (liveSource == null) return snapshotNodes;
+  const liveSources = new Map<string, DataSourceNode>();
+  for (const node of liveNodes) {
+    if (node.type !== "dataSource") continue;
+    liveSources.set(node.id, node);
+  }
   return snapshotNodes.map((n) => {
-    if (n.id === DATA_SOURCE_NODE_ID && n.type === "dataSource") {
+    if (n.type === "dataSource") {
+      const liveSource = liveSources.get(n.id);
+      if (liveSource == null) return n;
       const ld = liveSource.data;
       return {
         ...n,

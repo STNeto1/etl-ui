@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppNode, DataSourceData, FilterNode } from "../types/flow";
-import { DATA_SOURCE_NODE_ID, defaultDataSourceData, defaultFilterData } from "../types/flow";
+import { defaultDataSourceData, defaultFilterData } from "../types/flow";
 import {
   cloneGraphSnapshotStrippingCsv,
   equalGraphSnapshotsIgnoringCsvPayload,
@@ -9,6 +9,7 @@ import {
 
 function makeDataSourceNode(
   csv: { headers: string[]; rows: Record<string, string>[] } | null,
+  id = "source-1",
 ): AppNode {
   const data: DataSourceData = {
     ...defaultDataSourceData(),
@@ -19,7 +20,7 @@ function makeDataSourceNode(
     loadedAt: 1,
   };
   return {
-    id: DATA_SOURCE_NODE_ID,
+    id,
     type: "dataSource",
     position: { x: 0, y: 0 },
     data,
@@ -84,9 +85,9 @@ describe("graphSnapshotHistory", () => {
   });
 
   it("mergeSourceCsvFromLive restores csv from live graph", () => {
-    const snapNodes: AppNode[] = [makeDataSourceNode(null)];
+    const snapNodes: AppNode[] = [makeDataSourceNode(null, "source-a")];
     const liveCsv = { headers: ["id"], rows: [{ id: "99" }] };
-    const live: AppNode[] = [makeDataSourceNode(liveCsv)];
+    const live: AppNode[] = [makeDataSourceNode(liveCsv, "source-a")];
     const merged = mergeSourceCsvFromLive(snapNodes, live);
     const n = merged[0];
     expect(n?.type).toBe("dataSource");

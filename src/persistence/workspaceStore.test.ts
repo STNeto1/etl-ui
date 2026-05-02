@@ -134,7 +134,7 @@ describe("workspaceStore", () => {
     expect(idx?.items.some((i) => i.id === DEFAULT_WORKSPACE_ID)).toBe(true);
   });
 
-  it("migrates v1 default-only store into index + rewrites csvSource to dataSource", async () => {
+  it("hard-break ignores v1 snapshots and creates a blank workspace", async () => {
     const v1Raw = {
       version: 1,
       savedAt: Date.now(),
@@ -156,7 +156,7 @@ describe("workspaceStore", () => {
 
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded?.version).toBe(WORKSPACE_SCHEMA_VERSION);
-    expect(loaded?.nodes[0]?.id).toBe("data-source");
+    expect(loaded?.nodes).toHaveLength(1);
     expect(loaded?.nodes[0]?.type).toBe("dataSource");
   });
 
@@ -247,9 +247,7 @@ describe("workspaceStore", () => {
 
     const loaded = await loadWorkspaceSnapshot(DEFAULT_WORKSPACE_ID);
     expect(loaded).not.toBeNull();
-    expect(
-      loaded?.nodes.some((node) => node.id === "data-source" && node.type === "dataSource"),
-    ).toBe(true);
+    expect(loaded?.nodes.some((node) => node.type === "dataSource")).toBe(true);
   });
 
   it("writeWorkspaceSnapshotRawForTest targets arbitrary workspace key", async () => {

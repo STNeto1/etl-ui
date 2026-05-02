@@ -1,7 +1,6 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode } from "../types/flow";
 import {
-  DATA_SOURCE_NODE_ID,
   defaultAggregateData,
   defaultCastColumnsData,
   defaultComputeColumnData,
@@ -27,6 +26,7 @@ import { DEMO_TEMPLATE_CSV } from "./demoSeedCsv";
 
 /** Minimum horizontal gap between node centers for toolbar card widths. */
 export const TEMPLATE_NODE_GAP_X = 480;
+const TEMPLATE_SOURCE_NODE_ID = "tmpl-source";
 
 export type WorkspaceTemplateId =
   | "starter"
@@ -107,7 +107,7 @@ export const WORKSPACE_TEMPLATE_LIST: readonly WorkspaceTemplateMeta[] = [
 
 function dataSourceNode(x: number, y: number): AppNode {
   return {
-    id: DATA_SOURCE_NODE_ID,
+    id: TEMPLATE_SOURCE_NODE_ID,
     type: "dataSource",
     position: { x, y },
     data: {
@@ -145,7 +145,7 @@ function snapshotStarter(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-s-e1", source: DATA_SOURCE_NODE_ID, target: filterId },
+      { id: "tmpl-s-e1", source: TEMPLATE_SOURCE_NODE_ID, target: filterId },
       { id: "tmpl-s-e2", source: filterId, target: vizId },
     ],
   };
@@ -184,7 +184,7 @@ function snapshotAggregate(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-a-e1", source: DATA_SOURCE_NODE_ID, target: aggId },
+      { id: "tmpl-a-e1", source: TEMPLATE_SOURCE_NODE_ID, target: aggId },
       { id: "tmpl-a-e2", source: aggId, target: vizId },
     ],
   };
@@ -221,7 +221,7 @@ function snapshotCompute(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-c-e1", source: DATA_SOURCE_NODE_ID, target: compId },
+      { id: "tmpl-c-e1", source: TEMPLATE_SOURCE_NODE_ID, target: compId },
       { id: "tmpl-c-e2", source: compId, target: vizId },
     ],
   };
@@ -286,7 +286,7 @@ function snapshotTransforms(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-tr-e0", source: DATA_SOURCE_NODE_ID, target: selId },
+      { id: "tmpl-tr-e0", source: TEMPLATE_SOURCE_NODE_ID, target: selId },
       { id: "tmpl-tr-e1", source: selId, target: renId },
       { id: "tmpl-tr-e2", source: renId, target: castId },
       { id: "tmpl-tr-e3", source: castId, target: sortId },
@@ -329,7 +329,7 @@ function snapshotBranchMerge(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-bm-e0", source: DATA_SOURCE_NODE_ID, target: condId },
+      { id: "tmpl-bm-e0", source: TEMPLATE_SOURCE_NODE_ID, target: condId },
       {
         id: "tmpl-bm-e1",
         source: condId,
@@ -376,13 +376,13 @@ function snapshotJoin(): { nodes: AppNode[]; edges: Edge[] } {
     edges: [
       {
         id: "tmpl-j-eL",
-        source: DATA_SOURCE_NODE_ID,
+        source: TEMPLATE_SOURCE_NODE_ID,
         target: joinId,
         targetHandle: JOIN_LEFT_TARGET,
       },
       {
         id: "tmpl-j-eR",
-        source: DATA_SOURCE_NODE_ID,
+        source: TEMPLATE_SOURCE_NODE_ID,
         target: joinId,
         targetHandle: JOIN_RIGHT_TARGET,
       },
@@ -441,7 +441,7 @@ function snapshotQuality(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-q-e0", source: DATA_SOURCE_NODE_ID, target: fillId },
+      { id: "tmpl-q-e0", source: TEMPLATE_SOURCE_NODE_ID, target: fillId },
       { id: "tmpl-q-e1", source: fillId, target: castId },
       { id: "tmpl-q-e2", source: castId, target: dedupeId },
       { id: "tmpl-q-e3", source: dedupeId, target: vizId },
@@ -495,7 +495,7 @@ function snapshotSwitchRoutes(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-sw-e0", source: DATA_SOURCE_NODE_ID, target: swId },
+      { id: "tmpl-sw-e0", source: TEMPLATE_SOURCE_NODE_ID, target: swId },
       {
         id: "tmpl-sw-e1",
         source: swId,
@@ -557,7 +557,7 @@ function snapshotPivotUnpivot(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-pu-e0", source: DATA_SOURCE_NODE_ID, target: unpivotId },
+      { id: "tmpl-pu-e0", source: TEMPLATE_SOURCE_NODE_ID, target: unpivotId },
       { id: "tmpl-pu-e1", source: unpivotId, target: pivotId },
       { id: "tmpl-pu-e2", source: pivotId, target: vizId },
     ],
@@ -602,7 +602,7 @@ function snapshotSampleDebug(): { nodes: AppNode[]; edges: Edge[] } {
       },
     ],
     edges: [
-      { id: "tmpl-sd-e0", source: DATA_SOURCE_NODE_ID, target: sortId },
+      { id: "tmpl-sd-e0", source: TEMPLATE_SOURCE_NODE_ID, target: sortId },
       { id: "tmpl-sd-e1", source: sortId, target: sampleId },
       { id: "tmpl-sd-e2", source: sampleId, target: vizId },
     ],

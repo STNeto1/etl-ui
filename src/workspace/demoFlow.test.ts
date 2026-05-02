@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { DATA_SOURCE_NODE_ID } from "../types/flow";
 import { DEMO_TEMPLATE_CSV } from "./demoSeedCsv";
 import { getDemoWorkspaceSnapshot } from "./demoFlow";
 import { TEMPLATE_NODE_GAP_X } from "./workspaceTemplates";
@@ -9,7 +8,7 @@ const MIN_NODE_X_GAP = 440;
 describe("getDemoWorkspaceSnapshot", () => {
   it("pre-loads template CSV on the source so downstream nodes resolve tabular data", () => {
     const { nodes } = getDemoWorkspaceSnapshot();
-    const csvNode = nodes.find((n) => n.id === DATA_SOURCE_NODE_ID);
+    const csvNode = nodes.find((n) => n.type === "dataSource");
     expect(csvNode?.type).toBe("dataSource");
     if (csvNode?.type !== "dataSource") return;
     expect(csvNode.data.csv).not.toBeNull();
@@ -31,7 +30,8 @@ describe("getDemoWorkspaceSnapshot", () => {
     const { edges, nodes } = getDemoWorkspaceSnapshot();
     const ids = new Set(nodes.map((n) => n.id));
     expect(edges).toHaveLength(2);
-    const e1 = edges.find((e) => e.source === DATA_SOURCE_NODE_ID);
+    const sourceId = nodes.find((n) => n.type === "dataSource")?.id;
+    const e1 = edges.find((e) => e.source === sourceId);
     const e2 = edges.find((e) => e.target === "tmpl-starter-viz");
     expect(e1?.target).toBe("tmpl-starter-filter");
     expect(e2?.source).toBe("tmpl-starter-filter");

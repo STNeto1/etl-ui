@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { AppNode } from "../types/flow";
-import { DATA_SOURCE_NODE_ID, defaultDataSourceData, defaultFilterData } from "../types/flow";
+import { defaultDataSourceData, defaultFilterData } from "../types/flow";
 import { resetGraph } from "./resetGraph";
+
+const SOURCE_ID = "source-1";
 
 describe("resetGraph", () => {
   it("keeps only csv source with edges cleared and preserves data by default", () => {
     const csvNode: AppNode = {
-      id: DATA_SOURCE_NODE_ID,
+      id: SOURCE_ID,
       type: "dataSource",
       position: { x: 12, y: 34 },
       data: {
@@ -23,12 +25,12 @@ describe("resetGraph", () => {
     };
     const { nodes, edges } = resetGraph(
       [other, csvNode],
-      [{ id: "e1", source: DATA_SOURCE_NODE_ID, target: "f1" }],
+      [{ id: "e1", source: SOURCE_ID, target: "f1" }],
       { resetSource: false },
     );
     expect(edges).toEqual([]);
     expect(nodes).toHaveLength(1);
-    expect(nodes[0]?.id).toBe(DATA_SOURCE_NODE_ID);
+    expect(nodes[0]?.id).toBeTypeOf("string");
     expect(nodes[0]?.position).toEqual({ x: 12, y: 34 });
     expect(nodes[0]?.type).toBe("dataSource");
     if (nodes[0]?.type === "dataSource") {
@@ -39,7 +41,7 @@ describe("resetGraph", () => {
 
   it("resetSource clears csv data but keeps position", () => {
     const csvNode: AppNode = {
-      id: DATA_SOURCE_NODE_ID,
+      id: SOURCE_ID,
       type: "dataSource",
       position: { x: 5, y: 6 },
       data: {

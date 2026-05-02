@@ -13,7 +13,6 @@ import type {
   SortDirection,
 } from "../types/flow";
 import {
-  DATA_SOURCE_NODE_ID,
   defaultAggregateData,
   defaultCastColumnsData,
   defaultComputeColumnData,
@@ -35,32 +34,9 @@ import {
   defaultUnnestArrayData,
   defaultVisualizationData,
 } from "../types/flow";
-import { createDatasetStore } from "../dataset/datasetStore";
 import { hydrateDataSourceCsvRows } from "../dataset/hydrateNodes";
-import type { DatasetFormat } from "../dataset/types";
 
-export const WORKSPACE_SCHEMA_VERSION = 3 as const;
-
-/** Rewrite persisted v1 graph shape (csvSource / csv-source) to v2 (dataSource / data-source). */
-function migrateWorkspaceRawV1ToV2InPlace(raw: Record<string, unknown>): void {
-  raw.version = 2;
-  const nodes = raw.nodes;
-  if (Array.isArray(nodes)) {
-    for (const entry of nodes) {
-      if (!isRecord(entry)) continue;
-      if (asString(entry.type) === "csvSource") entry.type = "dataSource";
-      if (asString(entry.id) === "csv-source") entry.id = "data-source";
-    }
-  }
-  const edges = raw.edges;
-  if (Array.isArray(edges)) {
-    for (const entry of edges) {
-      if (!isRecord(entry)) continue;
-      if (asString(entry.source) === "csv-source") entry.source = "data-source";
-      if (asString(entry.target) === "csv-source") entry.target = "data-source";
-    }
-  }
-}
+export const WORKSPACE_SCHEMA_VERSION = 4 as const;
 
 export type WorkspaceSnapshot = {
   version: number;
@@ -125,59 +101,6 @@ function sanitizeSampleRows(value: unknown): Record<string, string>[] {
     out.push(normalized);
   }
   return out;
-}
-
-function inferDatasetFormatFromSourceData(data: Record<string, unknown>): DatasetFormat {
-  const name = (asString(data.fileName) ?? "").toLowerCase();
-  if (name.endsWith(".ndjson")) return "ndjson";
-  if (name.endsWith(".json")) return "json";
-  return "csv";
-}
-
-async function migrateV2DataSourcesToDatasetRefs(nodes: AppNode[]): Promise<AppNode[]> {
-  const store = createDatasetStore();
-  const next: AppNode[] = [];
-  for (const node of nodes) {
-    if (node.type !== "dataSource") {
-      next.push(node);
-      continue;
-    }
-    const d = node.data;
-    if (d.datasetId != null) {
-      next.push(node);
-      continue;
-    }
-    const csv = d.csv;
-    if (csv != null && csv.rows.length > 0) {
-      const format = inferDatasetFormatFromSourceData(d as unknown as Record<string, unknown>);
-      const meta = await store.putNormalizedPayload(csv, format);
-      next.push({
-        ...node,
-        data: {
-          ...d,
-          datasetId: meta.id,
-          format: meta.format,
-          headers: meta.headers,
-          rowCount: meta.rowCount,
-          sample: meta.sample,
-          csv,
-        },
-      });
-    } else {
-      next.push({
-        ...node,
-        data: {
-          ...d,
-          datasetId: d.datasetId ?? null,
-          format: d.format ?? null,
-          headers: d.headers.length > 0 ? d.headers : (csv?.headers ?? []),
-          rowCount: d.rowCount > 0 ? d.rowCount : (csv?.rows.length ?? 0),
-          sample: d.sample.length > 0 ? d.sample : csv ? sampleRowsFromPayload(csv.rows) : [],
-        },
-      });
-    }
-  }
-  return next;
 }
 
 function sanitizeHttpKvList(value: unknown): { id: string; key: string; value: string }[] {
@@ -842,21 +765,16 @@ function sanitizeEdge(rawEdge: unknown): Edge | null {
 }
 
 function ensureRequiredDataSource(nodes: AppNode[]): AppNode[] {
-  const fixedSource = nodes.find(
-    (node) => node.id === DATA_SOURCE_NODE_ID && node.type === "dataSource",
-  );
-  const withoutFixed = nodes.filter((node) => node.id !== DATA_SOURCE_NODE_ID);
-  if (fixedSource != null) {
-    return [fixedSource, ...withoutFixed];
-  }
+  const hasSource = nodes.some((node) => node.type === "dataSource");
+  if (hasSource) return nodes;
   return [
     {
-      id: DATA_SOURCE_NODE_ID,
+      id: crypto.randomUUID(),
       type: "dataSource",
       position: { x: 0, y: 0 },
       data: defaultDataSourceData(),
     },
-    ...withoutFixed,
+    ...nodes,
   ];
 }
 
@@ -875,91 +793,20 @@ export function serializeWorkspaceSnapshot(nodes: AppNode[], edges: Edge[]): Wor
   };
 }
 
-/** First legacy `httpFetch` palette node merged into fixed data source on load (node type removed). */
-function extractLegacyHttpFetchIntoDataSource(rawNodes: unknown[]): Partial<DataSourceData> | null {
-  for (const raw of rawNodes) {
-    if (!isRecord(raw) || asString(raw.type) !== "httpFetch") continue;
-    const d = isRecord(raw.data) ? raw.data : {};
-    const httpUrl = asString(d.url) ?? "";
-    const httpParams = sanitizeHttpKvList(d.params);
-    const httpHeaders = sanitizeHttpKvList(d.headers);
-    const csv = sanitizeCsvPayload(d.csv);
-    const err = asString(d.error);
-    const loadedAt = asNumber(d.fetchedAt);
-    let fileName: string | null = null;
-    if (httpUrl.trim().length > 0) {
-      try {
-        fileName = new URL(httpUrl.trim()).host;
-      } catch {
-        fileName = "HTTP";
-      }
-    }
-    if (csv != null) {
-      return {
-        httpUrl,
-        httpParams,
-        httpHeaders,
-        csv,
-        source: "http",
-        fileName,
-        error: null,
-        loadedAt: loadedAt ?? Date.now(),
-        datasetId: null,
-        format: null,
-        headers: csv.headers,
-        rowCount: csv.rows.length,
-        sample: sampleRowsFromPayload(csv.rows),
-      };
-    }
-    return {
-      httpUrl,
-      httpParams,
-      httpHeaders,
-      ...(err != null ? { error: err } : {}),
-      datasetId: null,
-      format: null,
-      headers: [],
-      rowCount: 0,
-      sample: [],
-    };
-  }
-  return null;
-}
-
 export async function deserializeWorkspaceSnapshot(
   raw: unknown,
 ): Promise<WorkspaceSnapshot | null> {
   if (!isRecord(raw)) return null;
   const initialVersion = asNumber(raw.version);
-  if (
-    initialVersion == null ||
-    (initialVersion !== 1 && initialVersion !== 2 && initialVersion !== 3)
-  ) {
-    return null;
-  }
-  if (initialVersion === 1) {
-    migrateWorkspaceRawV1ToV2InPlace(raw);
-  }
+  if (initialVersion == null || initialVersion !== WORKSPACE_SCHEMA_VERSION) return null;
 
   const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : null;
   const rawEdges = Array.isArray(raw.edges) ? raw.edges : null;
   if (rawNodes == null || rawEdges == null) return null;
 
-  const legacyHttp = extractLegacyHttpFetchIntoDataSource(rawNodes);
-
   let nodes = ensureRequiredDataSource(
     rawNodes.map((node) => sanitizeNode(node)).filter((node): node is AppNode => node != null),
-  ).map((node) => {
-    if (legacyHttp == null) return node;
-    if (node.id === DATA_SOURCE_NODE_ID && node.type === "dataSource") {
-      return { ...node, data: { ...node.data, ...legacyHttp } };
-    }
-    return node;
-  });
-
-  if (initialVersion <= 2) {
-    nodes = await migrateV2DataSourcesToDatasetRefs(nodes);
-  }
+  );
 
   nodes = await hydrateDataSourceCsvRows(nodes);
 

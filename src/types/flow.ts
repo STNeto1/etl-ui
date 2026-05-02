@@ -1,12 +1,6 @@
 import type { Node } from "@xyflow/react";
 import type { DatasetFormat } from "../dataset/types";
 
-/** Fixed id for the sole data source node; removal is treated as a data reset, not graph delete. */
-export const DATA_SOURCE_NODE_ID = "data-source" as const;
-
-/** @deprecated Use DATA_SOURCE_NODE_ID (persisted id was renamed in workspace schema v2). */
-export const CSV_SOURCE_NODE_ID = DATA_SOURCE_NODE_ID;
-
 export type CsvPayload = {
   headers: string[];
   rows: Record<string, string>[];
@@ -53,13 +47,6 @@ export type DataSourceData = {
 };
 
 export type DataSourceNode = Node<DataSourceData, "dataSource">;
-
-/** @deprecated Use DataSourceData */
-export type CsvSourceData = DataSourceData;
-/** @deprecated Use DataSourceKind */
-export type CsvSourceKind = DataSourceKind;
-/** @deprecated Use DataSourceNode */
-export type CsvSourceNode = DataSourceNode;
 
 /** Key/value row for CSV source HTTP query params or headers. */
 export type HttpFetchKv = {
@@ -608,9 +595,6 @@ export const defaultDataSourceData = (): DataSourceData => ({
   httpLastDiagnostics: null,
   httpColumnRenames: [],
 });
-
-/** @deprecated Use defaultDataSourceData */
-export const defaultCsvSourceData = defaultDataSourceData;
 
 export function isPaletteNodeType(value: unknown): value is PaletteNodeType {
   return (
