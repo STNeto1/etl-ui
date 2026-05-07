@@ -10,7 +10,7 @@ import {
 import { useMachine } from "@xstate/react";
 import { assign, fromCallback, setup } from "xstate";
 import Papa from "papaparse";
-import { Handle, Position, useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
+import { useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
 import {
   fileTooLargeMessage,
   getHardCsvNdjsonBytes,
@@ -37,6 +37,7 @@ import type {
   HttpColumnRename,
   HttpFetchKv,
 } from "../types/flow";
+import { WorkflowSourceHandle } from "../workspace/orientation";
 import { inferColumnTypes } from "./inferCsvColumnTypes";
 import { HttpKvRows } from "./components/HttpKvRows";
 
@@ -1264,9 +1265,7 @@ export function DataSourceNode({ id, data }: NodeProps<DataSourceNode>) {
         </div>
       )}
 
-      <Handle
-        type="source"
-        position={Position.Bottom}
+      <WorkflowSourceHandle
         isConnectable={sourceHasOutputRef}
         className={["bg-neutral-400!", sourceHasOutputRef ? "" : "opacity-35"].join(" ")}
       />

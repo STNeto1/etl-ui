@@ -3,6 +3,7 @@ import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } fr
 import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import { useTabularRowCountFromEdge } from "../graph/useTabularRowCountFromEdge";
 import { JOIN_LEFT_TARGET, JOIN_RIGHT_TARGET } from "../join/handles";
+import { useWorkflowOrientation, workflowSourcePosition } from "../workspace/orientation";
 import type {
   AppNode,
   JoinKeyPair,
@@ -13,6 +14,7 @@ import type {
 
 export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
   const { setNodes } = useReactFlow();
+  const orientation = useWorkflowOrientation();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
@@ -88,17 +90,19 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
           <span style={{ marginRight: "12%" }}>Right</span>
         </div>
         <Handle
+          key={`${orientation}-${JOIN_LEFT_TARGET}`}
           id={JOIN_LEFT_TARGET}
           type="target"
-          position={Position.Top}
-          style={{ left: "25%" }}
+          position={orientation === "horizontal" ? Position.Left : Position.Top}
+          style={orientation === "horizontal" ? { top: "35%" } : { left: "25%" }}
           className="bg-neutral-400!"
         />
         <Handle
+          key={`${orientation}-${JOIN_RIGHT_TARGET}`}
           id={JOIN_RIGHT_TARGET}
           type="target"
-          position={Position.Top}
-          style={{ left: "75%" }}
+          position={orientation === "horizontal" ? Position.Left : Position.Top}
+          style={orientation === "horizontal" ? { top: "65%" } : { left: "75%" }}
           className="bg-neutral-400!"
         />
       </div>
@@ -223,7 +227,12 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
         </p>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <Handle
+        key={`source-${orientation}`}
+        type="source"
+        position={workflowSourcePosition(orientation)}
+        className="bg-neutral-400!"
+      />
     </div>
   );
 }

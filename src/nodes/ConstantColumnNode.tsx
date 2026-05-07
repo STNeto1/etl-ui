@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
+import { useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import type {
   AppNode,
@@ -7,6 +7,7 @@ import type {
   ConstantColumnNode as ConstantColumnNodeType,
   ConstantColumnNodeData,
 } from "../types/flow";
+import { WorkflowSourceHandle, WorkflowTargetHandle } from "../workspace/orientation";
 
 function newConstant(): ConstantColumnDef {
   return { id: crypto.randomUUID(), columnName: "", value: "" };
@@ -66,7 +67,7 @@ export function ConstantColumnNode({ id, data }: NodeProps<ConstantColumnNodeTyp
 
   return (
     <div className="min-w-[280px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <WorkflowTargetHandle className="bg-neutral-400!" />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Constant column
       </div>
@@ -143,7 +144,7 @@ export function ConstantColumnNode({ id, data }: NodeProps<ConstantColumnNodeTyp
         <p className="mt-1 px-1 text-[10px] text-neutral-500">Upstream columns: {headers.length}</p>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <WorkflowSourceHandle className="bg-neutral-400!" />
     </div>
   );
 }

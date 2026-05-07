@@ -36,7 +36,7 @@ describe("layoutWorkflowGraph", () => {
       { id: "e0", source: "n0", target: "n1" },
       { id: "e1", source: "n1", target: "n2" },
     ];
-    const out = layoutWorkflowGraph(nodes, edges);
+    const out = layoutWorkflowGraph(nodes, edges, "vertical");
     expect(out).not.toBeNull();
     const byId = new Map(out!.map((n) => [n.id, n]));
     const p0 = byId.get("n0")!.position;
@@ -49,6 +49,28 @@ describe("layoutWorkflowGraph", () => {
     expect(p1.y).toBeLessThan(p2.y);
   });
 
+  it("lays out a simple chain left-to-right", () => {
+    const a = source("n0");
+    const b = filter("n1");
+    const c = filter("n2");
+    const nodes: AppNode[] = [a, b, c];
+    const edges: Edge[] = [
+      { id: "e0", source: "n0", target: "n1" },
+      { id: "e1", source: "n1", target: "n2" },
+    ];
+    const out = layoutWorkflowGraph(nodes, edges, "horizontal");
+    expect(out).not.toBeNull();
+    const byId = new Map(out!.map((n) => [n.id, n]));
+    const p0 = byId.get("n0")!.position;
+    const p1 = byId.get("n1")!.position;
+    const p2 = byId.get("n2")!.position;
+    expect(Number.isFinite(p0.x)).toBe(true);
+    expect(Number.isFinite(p1.x)).toBe(true);
+    expect(Number.isFinite(p2.x)).toBe(true);
+    expect(p0.x).toBeLessThan(p1.x);
+    expect(p1.x).toBeLessThan(p2.x);
+  });
+
   it("packs two disconnected components horizontally with separation", () => {
     const s1 = source("s1");
     const f1 = filter("f1");
@@ -59,7 +81,7 @@ describe("layoutWorkflowGraph", () => {
       { id: "a", source: "s1", target: "f1" },
       { id: "b", source: "s2", target: "f2" },
     ];
-    const out = layoutWorkflowGraph(nodes, edges);
+    const out = layoutWorkflowGraph(nodes, edges, "vertical");
     expect(out).not.toBeNull();
     const byId = new Map(out!.map((n) => [n.id, n]));
 

@@ -14,8 +14,17 @@ describe("workspaceFile", () => {
     const json = JSON.stringify(serializeWorkspaceSnapshot(nodes, edges));
     const snap = await parseWorkspaceJsonText(json);
     expect(snap).not.toBeNull();
+    expect(snap!.orientation).toBe("horizontal");
     expect(snap!.nodes.length).toBe(nodes.length);
     expect(snap!.edges.length).toBe(edges.length);
+  });
+
+  it("defaults imported v4 snapshots without orientation to vertical", async () => {
+    const { nodes, edges } = getBlankWorkspaceGraph();
+    const json = JSON.stringify({ version: 4, savedAt: Date.now(), nodes, edges });
+    const snap = await parseWorkspaceJsonText(json);
+    expect(snap).not.toBeNull();
+    expect(snap!.orientation).toBe("vertical");
   });
 
   it("parseWorkspaceJsonText returns null for invalid JSON", async () => {

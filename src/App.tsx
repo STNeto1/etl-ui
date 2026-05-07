@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type DragEvent } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type DragEvent } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -6,6 +6,7 @@ import {
   applyEdgeChanges,
   addEdge,
   useReactFlow,
+  useUpdateNodeInternals,
   type Edge,
   type NodeChange,
   type EdgeChange,
@@ -13,6 +14,7 @@ import {
   Background,
   BackgroundVariant,
   Controls,
+  Position,
 } from "@xyflow/react";
 import {
   buildWorkspaceExportFilename,
@@ -83,6 +85,11 @@ import {
 } from "./persistence/workspaceStore";
 import { getBlankWorkspaceGraph } from "./workspace/blankWorkspace";
 import { layoutWorkflowGraph } from "./workspace/layoutWorkflowGraph";
+import {
+  DEFAULT_WORKFLOW_ORIENTATION,
+  WorkflowOrientationProvider,
+  type WorkflowOrientation,
+} from "./workspace/orientation";
 import { resetGraph } from "./workspace/resetGraph";
 import {
   getWorkspaceTemplateSnapshot,
@@ -123,6 +130,17 @@ function FlowWorkspace() {
   const [hydrated, setHydrated] = useState(false);
   const [workspaceId, setWorkspaceId] = useState<string>(DEFAULT_WORKSPACE_ID);
   const [workspaceIndex, setWorkspaceIndex] = useState<WorkspaceIndex | null>(null);
+  const [orientation, setOrientation] = useState<WorkflowOrientation>(DEFAULT_WORKFLOW_ORIENTATION);
+  const previousOrientationRef = useRef<WorkflowOrientation>(DEFAULT_WORKFLOW_ORIENTATION);
+  const flowNodes = useMemo(
+    () =>
+      nodes.map((node) => ({
+        ...node,
+        sourcePosition: orientation === "horizontal" ? Position.Right : Position.Bottom,
+        targetPosition: orientation === "horizontal" ? Position.Left : Position.Top,
+      })),
+    [nodes, orientation],
+  );
   const [resetSourceToo, setResetSourceToo] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkspaceTemplateId>("starter");
@@ -134,6 +152,7 @@ function FlowWorkspace() {
     getEdges,
     setNodes: setRfNodes,
   } = useReactFlow<AppNode, Edge>();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   const {
     undo,
@@ -164,10 +183,12 @@ function FlowWorkspace() {
       const snapshot = await loadWorkspaceSnapshot(index.activeId);
       if (cancelled) return;
       if (snapshot != null) {
+        setOrientation(snapshot.orientation);
         setNodes(snapshot.nodes);
         setEdges(snapshot.edges);
       } else {
         const b = getBlankWorkspaceGraph();
+        setOrientation(DEFAULT_WORKFLOW_ORIENTATION);
         setNodes(b.nodes);
         setEdges(b.edges);
       }
@@ -183,10 +204,22 @@ function FlowWorkspace() {
   useEffect(() => {
     if (!hydrated) return;
     const timer = window.setTimeout(() => {
-      void saveWorkspaceSnapshot(workspaceId, nodes, edges);
+      void saveWorkspaceSnapshot(workspaceId, nodes, edges, orientation);
     }, AUTOSAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [edges, hydrated, nodes, workspaceId]);
+  }, [edges, hydrated, nodes, orientation, workspaceId]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (previousOrientationRef.current === orientation) return;
+    previousOrientationRef.current = orientation;
+
+    const nodeIds = nodes.map((node) => node.id);
+    const frame = requestAnimationFrame(() => {
+      for (const nodeId of nodeIds) updateNodeInternals(nodeId);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [hydrated, nodes, orientation, updateNodeInternals]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -212,18 +245,20 @@ function FlowWorkspace() {
   const handleSelectWorkspace = useCallback(
     async (nextId: string) => {
       if (nextId === workspaceId) return;
-      await saveWorkspaceSnapshot(workspaceId, nodes, edges);
+      await saveWorkspaceSnapshot(workspaceId, nodes, edges, orientation);
       const idx = await setActiveWorkspaceId(nextId);
       const snap = await loadWorkspaceSnapshot(nextId);
       const freshIndex = idx ?? (await loadWorkspaceIndex());
       if (freshIndex != null) setWorkspaceIndex(freshIndex);
       setWorkspaceId(nextId);
       if (snap != null) {
+        setOrientation(snap.orientation);
         resetHistory({ nodes: snap.nodes, edges: snap.edges });
         setNodes(snap.nodes);
         setEdges(snap.edges);
       } else {
         const b = getBlankWorkspaceGraph();
+        setOrientation(DEFAULT_WORKFLOW_ORIENTATION);
         resetHistory({ nodes: b.nodes, edges: b.edges });
         setNodes(b.nodes);
         setEdges(b.edges);
@@ -232,23 +267,24 @@ function FlowWorkspace() {
         fitView({ duration: 200 });
       });
     },
-    [workspaceId, nodes, edges, fitView, resetHistory],
+    [workspaceId, nodes, edges, orientation, fitView, resetHistory],
   );
 
   const handleNewWorkspace = useCallback(async () => {
-    await saveWorkspaceSnapshot(workspaceId, nodes, edges);
+    await saveWorkspaceSnapshot(workspaceId, nodes, edges, orientation);
     const created = await createWorkspace();
     if (created == null) return;
     setWorkspaceIndex(created.index);
     setWorkspaceId(created.id);
     const b = getBlankWorkspaceGraph();
+    setOrientation(DEFAULT_WORKFLOW_ORIENTATION);
     resetHistory({ nodes: b.nodes, edges: b.edges });
     setNodes(b.nodes);
     setEdges(b.edges);
     queueMicrotask(() => {
       fitView({ duration: 200 });
     });
-  }, [workspaceId, nodes, edges, fitView, resetHistory]);
+  }, [workspaceId, nodes, edges, orientation, fitView, resetHistory]);
 
   const handleRenameWorkspace = useCallback(() => {
     if (workspaceIndex == null) return;
@@ -272,11 +308,13 @@ function FlowWorkspace() {
     setWorkspaceId(nextId);
     const snap = await loadWorkspaceSnapshot(nextId);
     if (snap != null) {
+      setOrientation(snap.orientation);
       resetHistory({ nodes: snap.nodes, edges: snap.edges });
       setNodes(snap.nodes);
       setEdges(snap.edges);
     } else {
       const b = getBlankWorkspaceGraph();
+      setOrientation(DEFAULT_WORKFLOW_ORIENTATION);
       resetHistory({ nodes: b.nodes, edges: b.edges });
       setNodes(b.nodes);
       setEdges(b.edges);
@@ -291,18 +329,19 @@ function FlowWorkspace() {
     resetHistory({ nodes: next.nodes, edges: next.edges });
     setNodes(next.nodes);
     setEdges(next.edges);
-    await saveWorkspaceSnapshot(workspaceId, next.nodes, next.edges);
-  }, [nodes, edges, resetSourceToo, workspaceId, resetHistory]);
+    await saveWorkspaceSnapshot(workspaceId, next.nodes, next.edges, orientation);
+  }, [nodes, edges, resetSourceToo, workspaceId, orientation, resetHistory]);
 
   const handleExportWorkspace = useCallback(() => {
     if (workspaceIndex == null) return;
     const item = workspaceIndex.items.find((i) => i.id === workspaceId);
     const name = item?.name ?? "workspace";
-    downloadWorkspaceJson(nodes, edges, buildWorkspaceExportFilename(name));
-  }, [workspaceIndex, workspaceId, nodes, edges]);
+    downloadWorkspaceJson(nodes, edges, buildWorkspaceExportFilename(name), orientation);
+  }, [workspaceIndex, workspaceId, nodes, edges, orientation]);
 
   const handleLoadWorkspaceTemplate = useCallback(async () => {
     const snap = getWorkspaceTemplateSnapshot(selectedTemplateId);
+    setOrientation(DEFAULT_WORKFLOW_ORIENTATION);
 
     // Persist template data source CSV to dataset store
     const dataSourceNode = snap.nodes.find((n) => n.type === "dataSource");
@@ -373,10 +412,11 @@ function FlowWorkspace() {
           return;
         }
         resetHistory({ nodes: snap.nodes, edges: snap.edges });
+        setOrientation(snap.orientation);
         setNodes(snap.nodes);
         setEdges(snap.edges);
         setImportError(null);
-        void saveWorkspaceSnapshot(workspaceId, snap.nodes, snap.edges);
+        void saveWorkspaceSnapshot(workspaceId, snap.nodes, snap.edges, snap.orientation);
         queueMicrotask(() => {
           fitView({ duration: 200 });
         });
@@ -397,7 +437,7 @@ function FlowWorkspace() {
         height: rf.height ?? n.height,
       } as AppNode;
     });
-    const laidOut = layoutWorkflowGraph(forLayout, edges);
+    const laidOut = layoutWorkflowGraph(forLayout, edges, orientation);
     if (laidOut == null) return;
     // Bulk programmatic updates must go through React Flow's batched setNodes so controlled
     // graphs receive replace changes via onNodesChange; plain React setState can leave the
@@ -406,7 +446,7 @@ function FlowWorkspace() {
     requestAnimationFrame(() => {
       void fitView({ duration: 200 });
     });
-  }, [getNodes, nodes, edges, setRfNodes, fitView]);
+  }, [getNodes, nodes, edges, orientation, setRfNodes, fitView]);
 
   const handleAddSource = useCallback(() => {
     setNodes((prev) => {
@@ -746,24 +786,28 @@ function FlowWorkspace() {
             canRedo={canRedo}
             onAddSource={handleAddSource}
             onFormatWorkflow={handleFormatWorkflow}
+            orientation={orientation}
+            onOrientationChange={setOrientation}
           />
         ) : null}
         <div className="min-h-0 w-full flex-1">
-          <ReactFlow
-            className="h-full w-full"
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onConnect={onConnect}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            fitView
-          >
-            <Background color="#ccc" variant={BackgroundVariant.Dots} />
-            <Controls />
-          </ReactFlow>
+          <WorkflowOrientationProvider value={orientation}>
+            <ReactFlow
+              className="h-full w-full"
+              nodes={flowNodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onConnect={onConnect}
+              onDragOver={onDragOver}
+              onDrop={onDrop}
+              fitView
+            >
+              <Background color="#ccc" variant={BackgroundVariant.Dots} />
+              <Controls />
+            </ReactFlow>
+          </WorkflowOrientationProvider>
         </div>
       </div>
     </div>

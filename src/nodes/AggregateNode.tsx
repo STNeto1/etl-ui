@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
+import { useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import type {
   AggregateMetricDef,
@@ -8,6 +8,7 @@ import type {
   AggregateNodeData,
   AppNode,
 } from "../types/flow";
+import { WorkflowSourceHandle, WorkflowTargetHandle } from "../workspace/orientation";
 
 const METRIC_OPS: { value: AggregateMetricOp; label: string }[] = [
   { value: "count", label: "Count" },
@@ -128,7 +129,7 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
 
   return (
     <div className="min-w-[300px] max-w-[460px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <WorkflowTargetHandle className="bg-neutral-400!" />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Aggregate
       </div>
@@ -341,7 +342,7 @@ export function AggregateNode({ id, data }: NodeProps<AggregateNodeType>) {
         </p>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <WorkflowSourceHandle className="bg-neutral-400!" />
     </div>
   );
 }

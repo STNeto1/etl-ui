@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
+import { useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useTabularPayloadFromEdge } from "../graph/useTabularPayloadFromEdge";
 import { inferColumnTypes } from "./inferCsvColumnTypes";
 import type {
@@ -8,6 +8,7 @@ import type {
   CastColumnsNode as CastColumnsNodeType,
   CastTarget,
 } from "../types/flow";
+import { WorkflowSourceHandle, WorkflowTargetHandle } from "../workspace/orientation";
 
 const CAST_TARGETS: { value: CastTarget; label: string }[] = [
   { value: "string", label: "String" },
@@ -67,7 +68,7 @@ export function CastColumnsNode({ id, data }: NodeProps<CastColumnsNodeType>) {
 
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <WorkflowTargetHandle className="bg-neutral-400!" />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Cast
       </div>
@@ -153,7 +154,7 @@ export function CastColumnsNode({ id, data }: NodeProps<CastColumnsNodeType>) {
         </div>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <WorkflowSourceHandle className="bg-neutral-400!" />
     </div>
   );
 }

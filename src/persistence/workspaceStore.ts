@@ -1,6 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode } from "../types/flow";
 import { getBlankWorkspaceGraph } from "../workspace/blankWorkspace";
+import type { WorkflowOrientation } from "../workspace/orientation";
 import {
   deserializeWorkspaceSnapshot,
   serializeWorkspaceSnapshot,
@@ -175,6 +176,7 @@ export async function saveWorkspaceSnapshot(
   workspaceId: string,
   nodes: AppNode[],
   edges: Edge[],
+  orientation?: WorkflowOrientation,
 ): Promise<void> {
   if (workspaceId === INDEX_KEY) return;
   try {
@@ -195,7 +197,7 @@ export async function saveWorkspaceSnapshot(
       return;
     }
     const now = Date.now();
-    const snapshot = serializeWorkspaceSnapshot(nodes, edges);
+    const snapshot = serializeWorkspaceSnapshot(nodes, edges, orientation);
     store.put(snapshot, workspaceId);
     index = {
       ...index,

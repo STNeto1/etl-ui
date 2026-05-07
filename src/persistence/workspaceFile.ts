@@ -1,5 +1,6 @@
 import type { Edge } from "@xyflow/react";
 import type { AppNode } from "../types/flow";
+import type { WorkflowOrientation } from "../workspace/orientation";
 import { deserializeWorkspaceSnapshot, serializeWorkspaceSnapshot } from "./schema";
 
 export function buildWorkspaceExportFilename(workspaceName: string): string {
@@ -11,8 +12,13 @@ export function buildWorkspaceExportFilename(workspaceName: string): string {
   return `${base || "etl-ui-workspace"}.json`;
 }
 
-export function downloadWorkspaceJson(nodes: AppNode[], edges: Edge[], filename: string): void {
-  const snapshot = serializeWorkspaceSnapshot(nodes, edges);
+export function downloadWorkspaceJson(
+  nodes: AppNode[],
+  edges: Edge[],
+  filename: string,
+  orientation?: WorkflowOrientation,
+): void {
+  const snapshot = serializeWorkspaceSnapshot(nodes, edges, orientation);
   const json = JSON.stringify(snapshot, null, 2);
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);

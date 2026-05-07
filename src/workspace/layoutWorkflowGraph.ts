@@ -1,6 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import { Graph, layout as dagreLayout } from "@dagrejs/dagre";
 import type { AppNode } from "../types/flow";
+import { DEFAULT_WORKFLOW_ORIENTATION, type WorkflowOrientation } from "./orientation";
 
 const DEFAULT_WIDTH = 320;
 const DEFAULT_HEIGHT = 140;
@@ -53,6 +54,7 @@ function layoutOneComponent(
   nodeIds: readonly string[],
   nodesById: Map<string, AppNode>,
   edges: Edge[],
+  orientation: WorkflowOrientation,
 ): Map<string, { x: number; y: number }> | null {
   const idSet = new Set(nodeIds);
   const subEdges = edges.filter((e) => idSet.has(e.source) && idSet.has(e.target));
@@ -60,7 +62,7 @@ function layoutOneComponent(
   const g = new Graph({ multigraph: true })
     .setDefaultEdgeLabel(() => ({}))
     .setGraph({
-      rankdir: "TB",
+      rankdir: orientation === "horizontal" ? "LR" : "TB",
       nodesep: NODESEP,
       ranksep: RANKSEP,
       marginx: 20,
@@ -100,10 +102,14 @@ function layoutOneComponent(
 }
 
 /**
- * Auto-layout workflow nodes (layered DAG, top-to-bottom). Disconnected subgraphs are laid out
- * separately and packed in columns (side by side). Returns null if layout fails.
+ * Auto-layout workflow nodes (layered DAG). Disconnected subgraphs are laid out separately
+ * and packed with separation. Returns null if layout fails.
  */
-export function layoutWorkflowGraph(nodes: AppNode[], edges: Edge[]): AppNode[] | null {
+export function layoutWorkflowGraph(
+  nodes: AppNode[],
+  edges: Edge[],
+  orientation: WorkflowOrientation = DEFAULT_WORKFLOW_ORIENTATION,
+): AppNode[] | null {
   if (nodes.length === 0) return [];
 
   const nodesById = new Map(nodes.map((n) => [n.id, n]));
@@ -112,9 +118,10 @@ export function layoutWorkflowGraph(nodes: AppNode[], edges: Edge[]): AppNode[] 
 
   const positionById = new Map<string, { x: number; y: number }>();
   let packX = 0;
+  let packY = 0;
 
   for (const comp of comps) {
-    const local = layoutOneComponent(comp, nodesById, edges);
+    const local = layoutOneComponent(comp, nodesById, edges, orientation);
     if (local == null) return null;
     if (local.size !== comp.length) return null;
 
@@ -132,15 +139,19 @@ export function layoutWorkflowGraph(nodes: AppNode[], edges: Edge[]): AppNode[] 
       bboxBottom = Math.max(bboxBottom, pos.y + height);
     }
 
-    const dx = packX - bboxLeft;
-    const dy = -bboxTop;
+    const dx = orientation === "horizontal" ? -bboxLeft : packX - bboxLeft;
+    const dy = orientation === "horizontal" ? packY - bboxTop : -bboxTop;
 
     for (const id of comp) {
       const pos = local.get(id)!;
       positionById.set(id, { x: pos.x + dx, y: pos.y + dy });
     }
 
-    packX += bboxRight - bboxLeft + COMPONENT_GAP;
+    if (orientation === "horizontal") {
+      packY += bboxBottom - bboxTop + COMPONENT_GAP;
+    } else {
+      packX += bboxRight - bboxLeft + COMPONENT_GAP;
+    }
   }
 
   return nodes.map((n) => {

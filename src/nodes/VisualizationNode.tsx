@@ -2,21 +2,14 @@ import { useCallback, useEffect, useMemo, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { useMachine } from "@xstate/react";
 import { assign, fromPromise, setup } from "xstate";
-import {
-  Handle,
-  Position,
-  useEdges,
-  useNodes,
-  useReactFlow,
-  type Edge,
-  type NodeProps,
-} from "@xyflow/react";
+import { useEdges, useNodes, useReactFlow, type Edge, type NodeProps } from "@xyflow/react";
 import { getPreviewForEdgeAsync, getRowCountForEdgeAsync } from "../graph/tabularOutput";
 import type {
   AppNode,
   VisualizationNode as VisualizationNodeType,
   VisualizationNodeData,
 } from "../types/flow";
+import { WorkflowSourceHandle, WorkflowTargetHandle } from "../workspace/orientation";
 import { visualizationUpstreamStaleKey } from "../graph/tabularStaleKey";
 
 const DEFAULT_PREVIEW_ROWS = 100;
@@ -612,7 +605,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
 
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <WorkflowTargetHandle className="bg-neutral-400!" />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Visualization
       </div>
@@ -741,7 +734,7 @@ export function VisualizationNode({ id, data }: NodeProps<VisualizationNodeType>
           {viaFilter ? " (after filter)" : " (pass-through)"} (plus header).
         </p>
       )}
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <WorkflowSourceHandle className="bg-neutral-400!" />
 
       {isExploreOpen &&
         resolution.kind === "ready" &&

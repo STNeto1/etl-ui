@@ -35,12 +35,19 @@ import {
   defaultVisualizationData,
 } from "../types/flow";
 import { hydrateDataSourceCsvRows } from "../dataset/hydrateNodes";
+import {
+  DEFAULT_WORKFLOW_ORIENTATION,
+  LEGACY_WORKFLOW_ORIENTATION,
+  sanitizeWorkflowOrientation,
+  type WorkflowOrientation,
+} from "../workspace/orientation";
 
 export const WORKSPACE_SCHEMA_VERSION = 4 as const;
 
 export type WorkspaceSnapshot = {
   version: number;
   savedAt: number;
+  orientation: WorkflowOrientation;
   nodes: AppNode[];
   edges: Edge[];
 };
@@ -778,7 +785,11 @@ function ensureRequiredDataSource(nodes: AppNode[]): AppNode[] {
   ];
 }
 
-export function serializeWorkspaceSnapshot(nodes: AppNode[], edges: Edge[]): WorkspaceSnapshot {
+export function serializeWorkspaceSnapshot(
+  nodes: AppNode[],
+  edges: Edge[],
+  orientation: WorkflowOrientation = DEFAULT_WORKFLOW_ORIENTATION,
+): WorkspaceSnapshot {
   const persistedNodes = nodes.map((n) => {
     if (n.type === "dataSource") {
       return { ...n, data: { ...n.data, csv: null } };
@@ -788,6 +799,7 @@ export function serializeWorkspaceSnapshot(nodes: AppNode[], edges: Edge[]): Wor
   return {
     version: WORKSPACE_SCHEMA_VERSION,
     savedAt: Date.now(),
+    orientation,
     nodes: persistedNodes,
     edges,
   };
@@ -819,6 +831,7 @@ export async function deserializeWorkspaceSnapshot(
   return {
     version: WORKSPACE_SCHEMA_VERSION,
     savedAt: asNumber(raw.savedAt) ?? Date.now(),
+    orientation: sanitizeWorkflowOrientation(raw.orientation) ?? LEGACY_WORKFLOW_ORIENTATION,
     nodes,
     edges,
   };

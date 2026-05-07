@@ -3,6 +3,7 @@ import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } fr
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
+import { useWorkflowOrientation, workflowTargetPosition } from "../workspace/orientation";
 import type {
   AppNode,
   SwitchBranch,
@@ -12,6 +13,7 @@ import type {
 
 export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
   const { setNodes } = useReactFlow();
+  const orientation = useWorkflowOrientation();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
@@ -74,7 +76,12 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
 
   return (
     <div className="min-w-[320px] max-w-[460px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <Handle
+        key={`target-${orientation}`}
+        type="target"
+        position={workflowTargetPosition(orientation)}
+        className="bg-neutral-400!"
+      />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Switch
       </div>
@@ -181,6 +188,7 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
                       </p>
                     )}
                     <Handle
+                      key={`${orientation}-${branch.id}`}
                       type="source"
                       position={Position.Right}
                       id={switchBranchSourceHandle(branch.id)}
@@ -199,6 +207,7 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
               Rows that match no branch exit here.
             </p>
             <Handle
+              key={`${orientation}-default`}
               type="source"
               position={Position.Right}
               id={SWITCH_DEFAULT_HANDLE}

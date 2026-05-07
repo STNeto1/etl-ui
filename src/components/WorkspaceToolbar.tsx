@@ -3,6 +3,7 @@ import { getAppDatasetStore } from "../dataset/appDatasetStore";
 import type { DatasetMeta } from "../dataset/types";
 import { listDatasetWorkspaceReferences } from "../dataset/workspaceDatasetRefs";
 import type { WorkspaceIndex } from "../persistence/workspaceStore";
+import type { WorkflowOrientation } from "../workspace/orientation";
 import type { WorkspaceTemplateId, WorkspaceTemplateMeta } from "../workspace/workspaceTemplates";
 
 const btnClass =
@@ -30,6 +31,8 @@ type WorkspaceToolbarProps = {
   canRedo: boolean;
   onAddSource: () => void;
   onFormatWorkflow: () => void;
+  orientation: WorkflowOrientation;
+  onOrientationChange: (orientation: WorkflowOrientation) => void;
 };
 
 export function WorkspaceToolbar({
@@ -54,6 +57,8 @@ export function WorkspaceToolbar({
   canRedo,
   onAddSource,
   onFormatWorkflow,
+  orientation,
+  onOrientationChange,
 }: WorkspaceToolbarProps) {
   const canDelete = workspaceIndex.items.length > 1;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -149,10 +154,26 @@ export function WorkspaceToolbar({
           <button type="button" className={btnClass} onClick={onAddSource}>
             Add source
           </button>
+          <label className="flex items-center gap-1 rounded border border-neutral-300 bg-white/95 px-2 py-1 text-[11px] text-neutral-800 shadow-sm">
+            <span className="whitespace-nowrap">Flow</span>
+            <select
+              className="rounded border border-neutral-200 bg-white text-[11px]"
+              value={orientation}
+              onChange={(e) => onOrientationChange(e.target.value as WorkflowOrientation)}
+              title="Connector direction for this workspace"
+            >
+              <option value="horizontal">Right</option>
+              <option value="vertical">Down</option>
+            </select>
+          </label>
           <button
             type="button"
             className={btnClass}
-            title="Auto-arrange nodes top-to-bottom by connections"
+            title={
+              orientation === "horizontal"
+                ? "Auto-arrange nodes left-to-right by connections"
+                : "Auto-arrange nodes top-to-bottom by connections"
+            }
             onClick={onFormatWorkflow}
           >
             Format

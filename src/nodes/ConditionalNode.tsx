@@ -4,6 +4,7 @@ import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { tryUpstreamHeadersForIncomingEdge } from "../graph/upstreamHeaders";
 import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import { CONDITIONAL_ELSE_HANDLE, CONDITIONAL_IF_HANDLE } from "../conditional/branches";
+import { useWorkflowOrientation, workflowTargetPosition } from "../workspace/orientation";
 import type {
   AppNode,
   ConditionalNode as ConditionalNodeType,
@@ -26,6 +27,7 @@ function isValueOnlyRulesChange(prev: FilterRule[], next: FilterRule[]): boolean
 
 export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
   const { setNodes } = useReactFlow();
+  const orientation = useWorkflowOrientation();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
@@ -100,7 +102,12 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
 
   return (
     <div className="min-w-[300px] max-w-[430px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <Handle
+        key={`target-${orientation}`}
+        type="target"
+        position={workflowTargetPosition(orientation)}
+        className="bg-neutral-400!"
+      />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Conditional
       </div>
@@ -141,17 +148,19 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
         <span>else (non-match)</span>
       </div>
       <Handle
+        key={`${orientation}-${CONDITIONAL_IF_HANDLE}`}
         id={CONDITIONAL_IF_HANDLE}
         type="source"
-        position={Position.Bottom}
-        style={{ left: "30%" }}
+        position={orientation === "horizontal" ? Position.Right : Position.Bottom}
+        style={orientation === "horizontal" ? { top: "40%" } : { left: "30%" }}
         className="bg-neutral-500!"
       />
       <Handle
+        key={`${orientation}-${CONDITIONAL_ELSE_HANDLE}`}
         id={CONDITIONAL_ELSE_HANDLE}
         type="source"
-        position={Position.Bottom}
-        style={{ left: "70%" }}
+        position={orientation === "horizontal" ? Position.Right : Position.Bottom}
+        style={orientation === "horizontal" ? { top: "60%" } : { left: "70%" }}
         className="bg-neutral-500!"
       />
     </div>

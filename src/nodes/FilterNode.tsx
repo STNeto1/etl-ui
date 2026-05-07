@@ -1,11 +1,17 @@
 import { useCallback, useMemo } from "react";
-import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
+import { Handle, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { tryUpstreamHeadersForIncomingEdge } from "../graph/upstreamHeaders";
 import type { AppNode, FilterNodeData, FilterNode as FilterNodeType } from "../types/flow";
+import {
+  useWorkflowOrientation,
+  workflowSourcePosition,
+  workflowTargetPosition,
+} from "../workspace/orientation";
 
 export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
   const { setNodes } = useReactFlow();
+  const orientation = useWorkflowOrientation();
   const nodes = useNodes<AppNode>();
   const edges = useEdges();
 
@@ -33,7 +39,12 @@ export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
 
   return (
     <div className="min-w-[280px] max-w-[400px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <Handle
+        key={`target-${orientation}`}
+        type="target"
+        position={workflowTargetPosition(orientation)}
+        className="bg-neutral-400!"
+      />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Filter
       </div>
@@ -58,7 +69,12 @@ export function FilterNode({ id, data }: NodeProps<FilterNodeType>) {
           onRulesChange={(next) => patchData({ rules: next })}
         />
       )}
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <Handle
+        key={`source-${orientation}`}
+        type="source"
+        position={workflowSourcePosition(orientation)}
+        className="bg-neutral-400!"
+      />
     </div>
   );
 }

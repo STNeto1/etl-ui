@@ -1,11 +1,12 @@
 import { useCallback, useMemo } from "react";
-import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
+import { useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { useMergeUnionUpstreamMeta } from "../graph/useMergeUnionUpstreamMeta";
 import type {
   AppNode,
   MergeUnionNode as MergeUnionNodeType,
   MergeUnionNodeData,
 } from "../types/flow";
+import { WorkflowSourceHandle, WorkflowTargetHandle } from "../workspace/orientation";
 
 function truncateId(id: string, max = 10): string {
   if (id.length <= max) return id;
@@ -75,7 +76,7 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
 
   return (
     <div className="min-w-[300px] max-w-[420px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <Handle type="target" position={Position.Top} className="bg-neutral-400!" />
+      <WorkflowTargetHandle className="bg-neutral-400!" />
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Merge / Union
       </div>
@@ -192,7 +193,7 @@ export function MergeUnionNode({ id, data }: NodeProps<MergeUnionNodeType>) {
         </p>
       )}
 
-      <Handle type="source" position={Position.Bottom} className="bg-neutral-400!" />
+      <WorkflowSourceHandle className="bg-neutral-400!" />
     </div>
   );
 }
