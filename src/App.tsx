@@ -144,6 +144,7 @@ function FlowWorkspace() {
   const [resetSourceToo, setResetSourceToo] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [selectedTemplateId, setSelectedTemplateId] = useState<WorkspaceTemplateId>("starter");
+  const flowWrapperRef = useRef<HTMLDivElement>(null);
   const {
     screenToFlowPosition,
     fitView,
@@ -449,19 +450,26 @@ function FlowWorkspace() {
   }, [getNodes, nodes, edges, orientation, setRfNodes, fitView]);
 
   const handleAddSource = useCallback(() => {
+    const bounds = flowWrapperRef.current?.getBoundingClientRect();
     setNodes((prev) => {
       const sourceCount = prev.filter((n) => n.type === "dataSource").length;
+      const position = screenToFlowPosition(
+        bounds == null
+          ? { x: 40, y: 80 + sourceCount * 180 }
+          : { x: bounds.left + 80, y: bounds.top + 120 + sourceCount * 32 },
+      );
       return [
-        ...prev,
+        ...prev.map((node) => ({ ...node, selected: false })),
         {
           id: crypto.randomUUID(),
           type: "dataSource",
-          position: { x: 40, y: 80 + sourceCount * 180 },
+          position,
+          selected: true,
           data: defaultDataSourceData(),
         },
       ];
     });
-  }, []);
+  }, [screenToFlowPosition]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -790,7 +798,7 @@ function FlowWorkspace() {
             onOrientationChange={setOrientation}
           />
         ) : null}
-        <div className="min-h-0 w-full flex-1">
+        <div ref={flowWrapperRef} className="min-h-0 w-full flex-1">
           <WorkflowOrientationProvider value={orientation}>
             <ReactFlow
               className="h-full w-full"

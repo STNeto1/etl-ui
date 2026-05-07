@@ -11,7 +11,8 @@ const btnClass =
   "rounded px-2 py-1 text-left text-[12px] text-neutral-800 hover:bg-neutral-100 disabled:text-neutral-400 disabled:hover:bg-transparent";
 const menuTriggerClass =
   "rounded-md px-2.5 py-1 text-[12px] font-medium text-neutral-800 hover:bg-neutral-200/70 data-[open=true]:bg-neutral-200/80";
-const selectClass = "rounded-md border border-neutral-300 bg-white/80 px-2 py-1 text-[12px] text-neutral-800";
+const selectClass =
+  "rounded-md border border-neutral-300 bg-white/80 px-2 py-1 text-[12px] text-neutral-800";
 type ToolbarMenu = "workspace" | "edit" | "graph" | "data" | "templates";
 
 function MenuItem({
@@ -138,9 +139,14 @@ export function WorkspaceToolbar({
     if (openMenu === "workspace") {
       return (
         <div className="absolute left-0 top-full mt-1 flex w-44 flex-col rounded-lg border border-neutral-200 bg-white/95 p-1 shadow-xl backdrop-blur">
-          <MenuItem onClick={() => runAndClose(() => void onNewWorkspace())}>New Workspace</MenuItem>
+          <MenuItem onClick={() => runAndClose(() => void onNewWorkspace())}>
+            New Workspace
+          </MenuItem>
           <MenuItem onClick={() => runAndClose(onRenameWorkspace)}>Rename Workspace</MenuItem>
-          <MenuItem disabled={!canDelete} onClick={() => runAndClose(() => void onDeleteWorkspace())}>
+          <MenuItem
+            disabled={!canDelete}
+            onClick={() => runAndClose(() => void onDeleteWorkspace())}
+          >
             Delete Workspace
           </MenuItem>
           <div className="my-1 border-t border-neutral-200" />
@@ -161,10 +167,16 @@ export function WorkspaceToolbar({
       return (
         <div className="absolute left-0 top-full mt-1 flex w-56 flex-col rounded-lg border border-neutral-200 bg-white/95 p-1 shadow-xl backdrop-blur">
           <MenuItem disabled={!canUndo} onClick={() => runAndClose(onUndo)}>
-            <span className="flex justify-between gap-4"><span>Undo</span><span className="text-neutral-500">⌘Z / Ctrl+Z</span></span>
+            <span className="flex justify-between gap-4">
+              <span>Undo</span>
+              <span className="text-neutral-500">⌘Z / Ctrl+Z</span>
+            </span>
           </MenuItem>
           <MenuItem disabled={!canRedo} onClick={() => runAndClose(onRedo)}>
-            <span className="flex justify-between gap-4"><span>Redo</span><span className="text-neutral-500">⇧⌘Z / Ctrl+Y</span></span>
+            <span className="flex justify-between gap-4">
+              <span>Redo</span>
+              <span className="text-neutral-500">⇧⌘Z / Ctrl+Y</span>
+            </span>
           </MenuItem>
           <div className="my-1 border-t border-neutral-200" />
           <div className="px-2 py-1 text-[11px] text-neutral-500">Delete selection: ⌫</div>
@@ -222,19 +234,31 @@ export function WorkspaceToolbar({
           </div>
           {datasetsOpen ? (
             datasets.length === 0 ? (
-              <p className="text-neutral-500">No datasets yet. Load a file on the data source node.</p>
+              <p className="text-neutral-500">
+                No datasets yet. Load a file on the data source node.
+              </p>
             ) : (
               <ul className="max-h-56 space-y-1 overflow-auto">
                 {datasets.map((d) => (
-                  <li key={d.id} className="flex flex-wrap items-center justify-between gap-1 border-b border-neutral-100 py-1 last:border-b-0">
-                    <span className="min-w-0 break-all font-mono text-[10px] text-neutral-700">{d.id}</span>
+                  <li
+                    key={d.id}
+                    className="flex flex-wrap items-center justify-between gap-1 border-b border-neutral-100 py-1 last:border-b-0"
+                  >
+                    <span className="min-w-0 break-all font-mono text-[10px] text-neutral-700">
+                      {d.id}
+                    </span>
                     <span className="shrink-0 text-neutral-500">
-                      {d.format} · {d.rowCount.toLocaleString()} rows · {(d.bytes / (1024 * 1024)).toFixed(1)} MiB
+                      {d.format} · {d.rowCount.toLocaleString()} rows ·{" "}
+                      {(d.bytes / (1024 * 1024)).toFixed(1)} MiB
                     </span>
                     {(datasetRefs.get(d.id) ?? []).length > 0 ? (
-                      <span className="w-full text-[10px] text-neutral-600">Used by: {(datasetRefs.get(d.id) ?? []).join(", ")}</span>
+                      <span className="w-full text-[10px] text-neutral-600">
+                        Used by: {(datasetRefs.get(d.id) ?? []).join(", ")}
+                      </span>
                     ) : (
-                      <span className="w-full text-[10px] text-amber-800">Unused in any workspace</span>
+                      <span className="w-full text-[10px] text-amber-800">
+                        Unused in any workspace
+                      </span>
                     )}
                     <button
                       type="button"
@@ -263,10 +287,13 @@ export function WorkspaceToolbar({
               </ul>
             )
           ) : (
-            <p className="text-neutral-500">Open the dataset list to inspect stored files and workspace references.</p>
+            <p className="text-neutral-500">
+              Open the dataset list to inspect stored files and workspace references.
+            </p>
           )}
           <p className="mt-2 text-[10px] text-neutral-500">
-            Replace from the Data source node. Deleting removes stored rows; workspaces that reference the id need a new file.
+            Replace from the Data source node. Deleting removes stored rows; workspaces that
+            reference the id need a new file.
           </p>
         </div>
       );
@@ -289,13 +316,18 @@ export function WorkspaceToolbar({
             ))}
           </select>
         </label>
-        <MenuItem onClick={() => runAndClose(() => void onLoadWorkspaceTemplate())}>Load Template</MenuItem>
+        <MenuItem onClick={() => runAndClose(() => void onLoadWorkspaceTemplate())}>
+          Load Template
+        </MenuItem>
       </div>
     );
   };
 
   return (
-    <div ref={toolbarRef} className="pointer-events-none absolute inset-x-2 top-2 z-10 flex flex-col items-center gap-1.5">
+    <div
+      ref={toolbarRef}
+      className="pointer-events-none absolute inset-x-2 top-2 z-10 flex flex-col items-center gap-1.5"
+    >
       <div className="pointer-events-auto relative flex w-full max-w-5xl items-center justify-between rounded-xl border border-neutral-200 bg-white/80 px-2 py-1 shadow-lg backdrop-blur-md">
         <div className="relative flex min-w-0 items-center gap-1">
           {(["workspace", "edit", "graph", "data", "templates"] as const).map((menu) => (

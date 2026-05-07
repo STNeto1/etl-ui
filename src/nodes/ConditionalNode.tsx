@@ -101,7 +101,7 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
   useEffect(() => () => clearRulesDebounce(), [clearRulesDebounce]);
 
   return (
-    <div className="min-w-[300px] max-w-[430px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
+    <div className="relative min-w-[300px] max-w-[430px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
       <Handle
         key={`target-${orientation}`}
         type="target"
@@ -143,7 +143,13 @@ export function ConditionalNode({ id, data }: NodeProps<ConditionalNodeType>) {
         </div>
       )}
 
-      <div className="mt-1 flex items-center justify-between px-1 text-[10px] text-neutral-500">
+      <div
+        className={
+          orientation === "horizontal"
+            ? "absolute top-[40%] right-2 flex h-[20%] flex-col justify-between text-right text-[10px] text-neutral-500"
+            : "mt-1 flex items-center justify-between px-1 text-[10px] text-neutral-500"
+        }
+      >
         <span>if (match)</span>
         <span>else (non-match)</span>
       </div>

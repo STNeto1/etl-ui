@@ -81,53 +81,70 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
 
   const showNoKeysWarning = leftConnected && rightConnected && keyPairs.length === 0;
   const showInvalidPairsWarning = invalidPairs.length > 0;
+  const leftInputLabel = orientation === "horizontal" ? "Input A" : "Top-left input";
+  const rightInputLabel = orientation === "horizontal" ? "Input B" : "Top-right input";
 
   return (
-    <div className="min-w-[300px] max-w-[440px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
-      <div className="relative px-1 pt-1">
-        <div className="flex justify-between text-[10px] font-medium uppercase tracking-wide text-neutral-500">
-          <span style={{ marginLeft: "12%" }}>Left</span>
-          <span style={{ marginRight: "12%" }}>Right</span>
+    <div className="relative min-w-[300px] max-w-[440px] rounded-lg border border-neutral-300 bg-white px-2 py-2 shadow-sm">
+      {orientation === "vertical" && (
+        <div className="px-1 pt-1">
+          <div className="flex justify-between text-[10px] font-medium uppercase tracking-wide text-neutral-500">
+            <span style={{ marginLeft: "12%" }}>{leftInputLabel}</span>
+            <span style={{ marginRight: "12%" }}>{rightInputLabel}</span>
+          </div>
         </div>
-        <Handle
-          key={`${orientation}-${JOIN_LEFT_TARGET}`}
-          id={JOIN_LEFT_TARGET}
-          type="target"
-          position={orientation === "horizontal" ? Position.Left : Position.Top}
-          style={orientation === "horizontal" ? { top: "35%" } : { left: "25%" }}
-          className="bg-neutral-400!"
-        />
-        <Handle
-          key={`${orientation}-${JOIN_RIGHT_TARGET}`}
-          id={JOIN_RIGHT_TARGET}
-          type="target"
-          position={orientation === "horizontal" ? Position.Left : Position.Top}
-          style={orientation === "horizontal" ? { top: "65%" } : { left: "75%" }}
-          className="bg-neutral-400!"
-        />
-      </div>
+      )}
+      <Handle
+        key={`${orientation}-${JOIN_LEFT_TARGET}`}
+        id={JOIN_LEFT_TARGET}
+        type="target"
+        position={orientation === "horizontal" ? Position.Left : Position.Top}
+        style={orientation === "horizontal" ? { top: "48%" } : { left: "25%" }}
+        className="bg-neutral-400!"
+      />
+      <Handle
+        key={`${orientation}-${JOIN_RIGHT_TARGET}`}
+        id={JOIN_RIGHT_TARGET}
+        type="target"
+        position={orientation === "horizontal" ? Position.Left : Position.Top}
+        style={orientation === "horizontal" ? { top: "62%" } : { left: "75%" }}
+        className="bg-neutral-400!"
+      />
 
       <div className="px-1 text-xs font-semibold uppercase tracking-wide text-neutral-500">
         Join
       </div>
       <p className="mt-0.5 px-1 text-[10px] text-neutral-500">
-        Match rows where all key pairs are equal (string). Connect{" "}
-        <span className="font-medium">Left</span> and <span className="font-medium">Right</span>{" "}
-        inputs.
+        Match rows where all key pairs are equal (string). Connect both tabular inputs.
       </p>
 
       <div
         className="nodrag nopan mt-2 rounded border border-neutral-200 bg-neutral-50 px-2 py-2 text-[11px]"
         onPointerDownCapture={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between text-neutral-700">
-          <span>Left rows</span>
-          <span className="font-medium">{leftRowCount ?? "—"}</span>
-        </div>
-        <div className="mt-1 flex items-center justify-between text-neutral-700">
-          <span>Right rows</span>
-          <span className="font-medium">{rightRowCount ?? "—"}</span>
-        </div>
+        {orientation === "horizontal" ? (
+          <>
+            <div className="flex items-center justify-between text-neutral-700">
+              <span>{leftInputLabel} rows</span>
+              <span className="font-medium">{leftRowCount ?? "—"}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-neutral-700">
+              <span>{rightInputLabel} rows</span>
+              <span className="font-medium">{rightRowCount ?? "—"}</span>
+            </div>
+          </>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 text-center text-neutral-700">
+            <div>
+              <div>{leftInputLabel} rows</div>
+              <div className="font-medium">{leftRowCount ?? "—"}</div>
+            </div>
+            <div>
+              <div>{rightInputLabel} rows</div>
+              <div className="font-medium">{rightRowCount ?? "—"}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {!leftConnected || !rightConnected ? (
@@ -135,7 +152,7 @@ export function JoinNode({ id, data }: NodeProps<JoinNodeType>) {
           className="nodrag nopan mt-2 rounded border border-dashed border-neutral-200 bg-neutral-50 px-2 py-2 text-[11px] text-neutral-500"
           onPointerDownCapture={(e) => e.stopPropagation()}
         >
-          Connect both left and right tabular inputs to configure join keys.
+          Connect both tabular inputs to configure join keys.
         </div>
       ) : (
         <div

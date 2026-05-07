@@ -1,9 +1,13 @@
 import { useCallback, useMemo } from "react";
-import { Handle, Position, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
+import { Handle, useEdges, useNodes, useReactFlow, type NodeProps } from "@xyflow/react";
 import { FilterRulesPanel } from "../components/FilterRulesPanel";
 import { useTabularHeadersFromEdge } from "../graph/useTabularHeadersFromEdge";
 import { SWITCH_DEFAULT_HANDLE, switchBranchSourceHandle } from "../switch/branches";
-import { useWorkflowOrientation, workflowTargetPosition } from "../workspace/orientation";
+import {
+  useWorkflowOrientation,
+  workflowSourcePosition,
+  workflowTargetPosition,
+} from "../workspace/orientation";
 import type {
   AppNode,
   SwitchBranch,
@@ -190,10 +194,10 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
                     <Handle
                       key={`${orientation}-${branch.id}`}
                       type="source"
-                      position={Position.Right}
+                      position={workflowSourcePosition(orientation)}
                       id={switchBranchSourceHandle(branch.id)}
                       className="bg-neutral-500!"
-                      style={{ top: "50%" }}
+                      style={orientation === "horizontal" ? { top: "50%" } : { left: "50%" }}
                     />
                   </li>
                 );
@@ -209,10 +213,10 @@ export function SwitchNode({ id, data }: NodeProps<SwitchNodeType>) {
             <Handle
               key={`${orientation}-default`}
               type="source"
-              position={Position.Right}
+              position={workflowSourcePosition(orientation)}
               id={SWITCH_DEFAULT_HANDLE}
               className="bg-neutral-400!"
-              style={{ top: "50%" }}
+              style={orientation === "horizontal" ? { top: "50%" } : { left: "50%" }}
             />
           </div>
         </div>
